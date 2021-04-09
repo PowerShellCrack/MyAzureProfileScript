@@ -1,5 +1,5 @@
 # MyAzureProfileScript
-THis is a still a work in progress...ins't everything?
+THis is a still a work in progress...isn't everything?
 
 Its a Profile script for your admin system to simply manage VMs in multiple (or singular) Azure tenants. I have multiple tenants and need to start them up based on what I am testing.
 ## Edit Script
