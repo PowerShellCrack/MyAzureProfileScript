@@ -17,7 +17,7 @@ There are some areas that needs to be modified. The very first function, __Set-M
             $global:myResourceGroup = '<your resource group>'
         }
 ```
-Make sure to update [ValidateSet] in the param section (line 25) as well if you add new site names.
+Make sure to update _[ValidateSet()]_ in the param section (line 25) as well if you add new site names.
 
 ```powershell
 [ValidateSet('SiteA','SiteB')]
@@ -31,7 +31,7 @@ On line 11, I have the script install the required modules. You can edit it and 
 - Az.Security
 
 ## Call the script
-Copy this script to your C:\Users\\\<userprofile>\Documents\WindowsPowerShell folder and relaunch Windows PowerShell.
+Copy this script to your __C:\Users\\\<userprofile>\Documents\WindowsPowerShell__ folder and relaunch Windows PowerShell.
 > __Keep in Mind__: If you already have a profile script, make sure you make a backup or integrate your code into this one.
 
 Since the script would be loaded in your profile, it would be called by anything that runs in with your context including corporate scripts that are managing your device. To fix this, I've added a check to see if the script is called directly and if it is, it exits the script
