@@ -1,33 +1,29 @@
 # MyAzureProfileScript
+
 THis is a still a work in progress...isn't everything?
 
 Its a Profile script for your admin system to simply manage VMs in multiple (or singular) Azure tenants. I have multiple tenants and need to start them up based on what I am testing.
-## Edit Script
- There are some areas that needs to be modified. Tee very first function, __Set-MyAzureEnvironment__, is where the Azure tenants are configured; add the tenant info to each site.
 
-This script will not be called if its opened in ISE or VScode (its gets pretty annoying in editors)
+## Customize your resources
+
+There are some areas that needs to be modified. The very first function, __Set-MyAzureEnvironment__, is where the Azure tenants are configured; add the tenant info to each site. Review Lines 38-51
 
 ```powershell
 #My Azure Site B lab
-'SiteB' { 
+'SiteB' {
             $global:myTenantID = '<your tenant ID>'
             $global:mySubscriptionName = '<your subscription name>'
             $global:mySubscriptionID = '<your subscription ID>'
             $global:myResourceGroup = '<your resource group>'
         }
 ```
-Make sure to update [ValidateSet] in the param section (line 29) as well if you add new site names.
+Make sure to update [ValidateSet] in the param section (line 25) as well if you add new site names.
 
 ```powershell
 [ValidateSet('SiteA','SiteB')]
 ```
 
-However you can disable it if you set line to 10 to
-```powershell
-$VoiceWelcomeMessage = $false
-```
-
-On line 11, i have the script install multiple modules. You will need to edit those you don't feel you need. I would recommend keeping these (used by this script):
+On line 11, I have the script install the required modules. You can edit it and add more if you like. I would recommend keeping these (used by this script):
 
 - Az
 - Azure
@@ -36,45 +32,49 @@ On line 11, i have the script install multiple modules. You will need to edit th
 
 ## Call the script
 Copy this script to your C:\Users\\\<userprofile>\Documents\WindowsPowerShell folder and relaunch Windows PowerShell.
-> If you alreafy have a profile script in there, make sure you make a backup or integrate your code into this one.
+> __Keep in Mind__: If you already have a profile script, make sure you make a backup or integrate your code into this one.
 
-The only command you will need run are:
- - Set-MyAzureEnvironment
+Since the script would be loaded in your profile, it would be called by anything that runs in with your context including corporate scripts that are managing your device. To fix this, I've added a check to see if the script is called directly and if it is, it exits the script
+
+The only command you will need run is:
  - Start-MyAzureEnvironment
-You will also be presented with a grid output to verify the subscription list. 
 
-Also the first time you connect to Azure using Powershell, an identity file is creating in your profile. And me being a nerd, I parse that file to look for the authenticated username's firstname and output a voice such as: "Good morning Powershelcrack,Please wait while I check for installed modules..."
+This will set off a chain of events
+You will also be presented with a grid output to verify the subscription list.
 
-...I plan on making more voice commands within the functions: NERD!!
+Also the first time you connect to Azure using PowerShell, an identity file is creating in your profile. And me being a nerd, I parse that file to look for the authenticated username's first name and output a voice such as: "Good morning Dick,Please wait while I check for installed modules..."
+
+However you can disable it if you set line 8 to
+```powershell
+$VoiceWelcomeMessage = $false
+```
+
+I plan on making more voice commands within the functions; yes I know what your thinking...NERD ALERT!!
 
 ## Screenshots
-Here are some screen shots, when running the commands
+This is what the startup looks like.
+![Console](.images/AzureEnvironment.PNG)
 
-![Alt_text](.images/AzureEnvironment.PNG)
+NSG assigned to __subnet__ and only enabled JIT for VMs with public IP's
+![NSG On Subnet](.images/status.png)
 
-![Alt_text](.images/prepvms.png)
-
-![Alt_text](.images/status.png)
+NSG assigned to VMs __nic__ and only enabled JIT for the ones with public IP's
+![NSG on NIC](.images/startedvms.png)
 
 ## Functions Included
-However there are allot of other functions available in this script:
+THe functions are the main functions to manage your virtual environment. However there are a lot of other functions available in this script:
 
 - Test-IsISE
 - Test-VSCode
-- Get-VolumeLevel
-- Set-VolumeLevel
-- Test-IsAdmin
-- Elevate-Process
-- Out-Voice
-- Open-File
+- Test-VSCodeInstall
+- Start-VSCodeInstall
 - Install-LatestModule
 - Connect-MyAzureEnvironment
 - Get-MyAzureNSGRules
 - Get-MyAzureVM
-- Start-MyAzureVM
-- Extract-MaxDuration
 - Set-MyJitAccess
 - Set-MyAzureEnvironment
+- Start-MyAzureVM
 - Start-MyAzureEnvironment
 - Get-MyAzureUserName
 - Get-MyHyperVM

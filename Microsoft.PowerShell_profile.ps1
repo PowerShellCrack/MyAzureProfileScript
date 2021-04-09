@@ -10,10 +10,7 @@ $VoiceWelcomeMessage = $true
 #set this to what you want
 $Checkmodules = @('Az','Az.Security','Azure','AzureAD')
 
-
 $myPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
-
-
 
 #preferences
 $VerbosePreference = 'SilentlyContinue'
@@ -22,35 +19,13 @@ $DebugPreference = 'SilentlyContinue'
 # Functions
 #=======================================================
 
-Function Validate-VSCodeInstall{
-    $Paths = (Get-Item env:Path).Value.split(';')
-    If($paths -like '*Microsoft VS Code*'){
-        return $true
-    }Else{
-        return $false
-    }
-}
-
-
-Function Start-VSCodeInstall {
-    $uri = 'https://raw.githubusercontent.com/PowerShell/vscode-powershell/master/scripts/Install-VSCode.ps1'
-    #Invoke-Command -ScriptBlock ([scriptblock]::Create((Invoke-WebRequest $uri -UseBasicParsing).Content))
-
-    If(-Not(Validate-VSCodeInstall) ){
-        $Code = (Invoke-WebRequest $uri -UseBasicParsing).Content
-        $code | Out-File $env:temp\vsc.ps1 -Force
-        Unblock-File $env:temp\vsc.ps1
-        . $env:temp\vsc.ps1 -LaunchWhenDone
-    }Else{
-        code
-    }
-}
-
 Function Set-MyAzureEnvironment{
     [CmdletBinding()]
     param(
         [ValidateSet('SiteA','SiteB')]
-        [string]$MyEnv
+        [string]$MyEnv,
+        [ValidateSet('TenantID','SubscriptionName','SubscriptionID','ResourceGroup')]
+        [string]$Output
     )
     ## Get the name of this function
     [string]${CmdletName} = $MyInvocation.MyCommand
@@ -59,7 +34,7 @@ Function Set-MyAzureEnvironment{
         $MyEnv = Get-ParameterOption -Command ${CmdletName} -Parameter myenv | Out-GridView -PassThru -Title "Select an Environment"
     }
     Switch($MyEnv){
-        #My Azure Site A lab 
+        #My Azure Site A lab
         'SiteA' {
                     $global:myTenantID = '<your tenant ID>'
                     $global:mySubscriptionName = '<your subscription name>'
@@ -67,7 +42,7 @@ Function Set-MyAzureEnvironment{
                     $global:myResourceGroup = '<your resource group>'
                 }
         #My Azure Site B lab
-        'SiteB' { 
+        'SiteB' {
                     $global:myTenantID = '<your tenant ID>'
                     $global:mySubscriptionName = '<your subscription name>'
                     $global:mySubscriptionID = '<your subscription ID>'
@@ -107,6 +82,30 @@ function Get-ParameterOption {
     }
 }
 #endregion
+
+Function Test-VSCodeInstall{
+    $Paths = (Get-Item env:Path).Value.split(';')
+    If($paths -like '*Microsoft VS Code*'){
+        return $true
+    }Else{
+        return $false
+    }
+}
+
+
+Function Start-VSCodeInstall {
+    $uri = 'https://raw.githubusercontent.com/PowerShell/vscode-powershell/master/scripts/Install-VSCode.ps1'
+    #Invoke-Command -ScriptBlock ([scriptblock]::Create((Invoke-WebRequest $uri -UseBasicParsing).Content))
+
+    If(-Not(Test-VSCodeInstall) ){
+        $Code = (Invoke-WebRequest $uri -UseBasicParsing).Content
+        $code | Out-File $env:temp\vsc.ps1 -Force
+        Unblock-File $env:temp\vsc.ps1
+        . $env:temp\vsc.ps1 -LaunchWhenDone
+    }Else{
+        code
+    }
+}
 
 #region FUNCTION: Check if running in ISE
 Function Test-IsISE {
@@ -1792,7 +1791,7 @@ Function Start-MDTSimulator{
                             $sleep = 30
                          }
             'VSCode'     {
-                            If(Validate-VSCodeInstall){
+                            If(Test-VSCodeInstall){
                                 $ProcessPath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\code.exe"
                                 $ProcessArgument="$DeploymentShare $env:temp\TSEnv.ps1 $DeploymentShare\Script\PSDStart.ps1 --new-window"
 
@@ -1820,7 +1819,7 @@ Function Start-MDTSimulator{
             Write-Host ('...Simulator terminal already started in {0}' -f $Environment) -ForegroundColor Green
         }
         Else{
-            If( ($Environment -eq 'VSCode') -and -Not(Validate-VSCodeInstall) ){
+            If( ($Environment -eq 'VSCode') -and -Not(Test-VSCodeInstall) ){
                 Return $null
             }
 
@@ -1932,7 +1931,7 @@ Install-LatestModule -Name $Checkmodules -Frequency Daily
 Show-MyCommands
 
 #create a vsc alias like ise
-If(Validate-VSCodeInstall){
+If(Test-VSCodeInstall){
     Set-Alias vsc -Value code
 }Else{
     Write-host "Visual Studio Code was not found; install at https://code.visualstudio.com/ or run command Start-VSCodeInstall" -BackgroundColor Red -ForegroundColor White
