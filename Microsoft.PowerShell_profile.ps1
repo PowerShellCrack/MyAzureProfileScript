@@ -7,10 +7,14 @@ if ([Environment]::GetCommandLineArgs().Count -gt 1) { exit }
 #voice
 $VoiceWelcomeMessage = $true
 
+$global:myPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
+
+$global:MyMDTSimulatorPath = 'C:\MDTSimulator'
+
+$global:MyDeploymentShare = "\\$env:ComputerName\Deploymentshare$"
+
 #set this to what you want
 $Checkmodules = @('Az','Az.Security','Azure','AzureAD')
-
-$myPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
 #preferences
 $VerbosePreference = 'SilentlyContinue'
@@ -22,31 +26,42 @@ $DebugPreference = 'SilentlyContinue'
 Function Set-MyAzureEnvironment{
     [CmdletBinding()]
     param(
-        [ValidateSet('SiteA','SiteB')]
+        [ValidateSet('Win10','SiteA','SiteB')]
         [string]$MyEnv,
+
         [ValidateSet('TenantID','SubscriptionName','SubscriptionID','ResourceGroup')]
-        [string]$Output
+        [string]$Output,
+
+        [switch]$Force
     )
     ## Get the name of this function
     [string]${CmdletName} = $MyInvocation.MyCommand
-
-    If(!$MyEnv){
-        $MyEnv = Get-ParameterOption -Command ${CmdletName} -Parameter myenv | Out-GridView -PassThru -Title "Select an Environment"
+    #build log name
+    [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+    Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+    
+    #if parameter force is set, always show selection
+    if ($Force -or ($null -eq $global:myEnv)) {
+        $global:myEnv = Get-ParameterOption -Command ${CmdletName} -Parameter myenv | Out-GridView -PassThru -Title "Select an Environment"
     }
-    Switch($MyEnv){
+    Elseif($PSBoundParameters.ContainsKey('MyEnv')){
+        $global:myEnv = $MyEnv
+    }
+
+    Switch($global:myEnv){
         #My Azure Site A lab
         'SiteA' {
-                    $global:myTenantID = '<your tenant ID>'
-                    $global:mySubscriptionName = '<your subscription name>'
-                    $global:mySubscriptionID = '<your subscription ID>'
-                    $global:myResourceGroup = '<your resource group>'
+                    $myTenantID = '<your tenant ID>'
+                    $mySubscriptionName = '<your subscription name>'
+                    $mySubscriptionID = '<your subscription ID>'
+                    $myResourceGroup = '<your resource group>'
                 }
         #My Azure Site B lab
         'SiteB' {
-                    $global:myTenantID = '<your tenant ID>'
-                    $global:mySubscriptionName = '<your subscription name>'
-                    $global:mySubscriptionID = '<your subscription ID>'
-                    $global:myResourceGroup = '<your resource group>'
+                    $myTenantID = '<your tenant ID>'
+                    $mySubscriptionName = '<your subscription name>'
+                    $mySubscriptionID = '<your subscription ID>'
+                    $myResourceGroup = '<your resource group>'
                 }
     }
 
@@ -55,14 +70,17 @@ Function Set-MyAzureEnvironment{
         'SubscriptionName' {$global:mySubscriptionName = $mySubscriptionName }
         'SubscriptionID' {$global:mySubscriptionID = $mySubscriptionID}
         'ResourceGroup' {$global:myResourceGroup = $myResourceGroup}
+        
         default {
             $global:myTenantID = $myTenantID
             $global:mySubscriptionName = $mySubscriptionName
             $global:mySubscriptionID = $mySubscriptionID
             $global:myResourceGroup = $myResourceGroup
         }
-
+        
     }
+    $global:myEnv = $MyEnv
+    Stop-Transcript | Out-Null
 }
 
 #region FUNCTION: Get parameter values from cmdlet
@@ -80,6 +98,31 @@ function Get-ParameterOption {
     } else {
         $parameters[$Parameter].Attributes.ValidValues
     }
+}
+#endregion
+
+
+#region FUNCTION: Check if running in ISE
+Function Test-IsISE {
+  # try...catch accounts for:
+  # Set-StrictMode -Version latest
+  try {
+      return ($null -ne $psISE);
+  }
+  catch {
+      return $false;
+  }
+}
+#endregion
+
+#region FUNCTION: Check if running in Visual Studio Code
+Function Test-VSCode{
+  if($env:TERM_PROGRAM -eq 'vscode') {
+      return $true;
+  }
+  Else{
+      return $false;
+  }
 }
 #endregion
 
@@ -106,30 +149,6 @@ Function Start-VSCodeInstall {
         code
     }
 }
-
-#region FUNCTION: Check if running in ISE
-Function Test-IsISE {
-  # try...catch accounts for:
-  # Set-StrictMode -Version latest
-  try {
-      return ($null -ne $psISE);
-  }
-  catch {
-      return $false;
-  }
-}
-#endregion
-
-#region FUNCTION: Check if running in Visual Studio Code
-Function Test-VSCode{
-  if($env:TERM_PROGRAM -eq 'vscode') {
-      return $true;
-  }
-  Else{
-      return $false;
-  }
-}
-#endregion
 
 #connect to volume controller on device
 $VolumeController = @'
@@ -310,19 +329,18 @@ Function Elevate-Process
     [Parameter(Mandatory=$false)]
     [string]$Process = "PowerShell.exe",
     [Parameter(Mandatory=$false)]
-    [switch]$UseAdm = $True
+    [string]$AdminAccount
     )
     Begin{
-        $AdminUser = (($env:USERNAME).Split('.')[0]) + ".adm"
         $splattable = @{}
         $splattable['FilePath'] = "PowerShell.exe"
         $splattable['WorkingDirectory'] = "$PSHOME"
         $splattable['ArgumentList'] = "Start-Process $Process -Verb runAs"
         $splattable['NoNewWindow'] = $true
         $splattable['PassThru'] = $true
-        If ($UseAdm){
+        If ($AdminAccount){
             Write-host "Prompting for your $env:USERDNSDOMAIN adm password..."
-            $admincheck = $host.ui.PromptForCredential("Need credentials", "Please enter your user name and password.", "$env:USERDNSDOMAIN\$AdminUser", "NetBiosUserName")
+            $admincheck = $host.ui.PromptForCredential("Need credentials", "Please enter your user name and password.", "$AdminAccount", "NetBiosUserName")
             #$admincheck = Get-Credential -Credential "$env:USERDNSDOMAIN\$AdminUser" -Message "Please enter your user name and password." -ErrorAction SilentlyContinue
         }
         Else{
@@ -334,7 +352,7 @@ Function Elevate-Process
 	If(!$admincheck){write-host "Credentials were invalid, exiting..." -ForegroundColor red;break}
     }
     Process{
-	    Write-host "Attempting to launch '$Process' as '$($splattable.Credential.UserName)' with elevated administrator privledges. Please wait..." -ForegroundColor Cyan
+	    Write-host "Attempting to launch '$Process' as '$($splattable.Credential.UserName)' with elevated administrator privileges. Please wait..." -ForegroundColor Cyan
 	    Try{
             Start-Process @splattable -ErrorAction Stop
         }
@@ -714,29 +732,39 @@ Function Connect-MyAzureEnvironment{
         SupportsShouldProcess = $true)]
     Param(
         [Parameter(Mandatory = $false,Position = 0)]
-        [string]$TenantID = $global:myTenantID,
+        [string]$TenantID,
 
         [Parameter(Mandatory = $false,
             Position = 1,
             ParameterSetName = 'NameParameterSet')]
-        [string]$SubscriptionName = $global:mySubscriptionName,
+        [string]$SubscriptionName,
 
         [Parameter(Mandatory = $false,
             Position = 1,
             ParameterSetName = 'IDParameterSet')]
-        [string]$SubscriptionID = $global:mySubscriptionID,
+        [string]$SubscriptionID ,
 
         [Parameter(Mandatory = $false,
             Position = 2)]
-        [string]$ResourceGroupName = $global:myResourceGroup,
+        [string]$ResourceGroupName,
 
         [switch]$ClearAll
     )
     Begin{
+        ## Get the name of this function
+        [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
+
+        #build log name
+        [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+        Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
         if (-not $PSBoundParameters.ContainsKey('Verbose')) {
             $VerbosePreference = $PSCmdlet.SessionState.PSVariable.GetValue('VerbosePreference')
         }
+        #grab global variables
+        Set-MyAzureEnvironment
 
+        #overwrite global variable if specified
         if ($PSBoundParameters.ContainsKey('TenantID')) {
             $global:myTenantID = $TenantID
         }
@@ -749,26 +777,34 @@ Function Connect-MyAzureEnvironment{
             $global:mySubscriptionName = $SubscriptionName
         }
 
+        #overwrite global resource group is parameter is called
         if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
             $global:myResourceGroup = $ResourceGroupName
         }
 
-        If($ClearAll -and (Get-AzDefault)){
-            Clear-AzDefault -Force
-            Clear-AzContext -Force
-            Disconnect-AzAccount
-            Set-MyAzureEnvironment
+        If($ClearAll){
+            Clear-AzDefault -ErrorAction SilentlyContinue -Force
+            Clear-AzContext -ErrorAction SilentlyContinue -Force
+            Disconnect-AzAccount -ErrorAction SilentlyContinue
         }
-        ElseIf (!$global:myTenantID -and !$global:mySubscriptionID -and !$global:myResourceGroup) {
-            Set-MyAzureEnvironment
+        Else{
+            Try{
+                #grab current AZ resources
+                $DefaultRG = Get-AzDefault -ResourceGroup -ErrorAction Stop
+                $Context = Get-AzContext -ErrorAction Stop
+            }Catch{
+                Write-host ("Failed to connect {0}. The error message was {1}" -f $_.Exception.ItemName,$_.Exception.Message) -ForegroundColor red
+                Break
+            }
         }
-        #grab current AZ resources
-        $Context = Get-AzContext
-        $DefaultRG = Get-AzDefault -ResourceGroup
 
+        $MySubscriptions = @()
         $MyRGs = @()
+
+        If($VerbosePreference){Write-Host ''}
     }
     Process{
+        If($VerbosePreference){Write-Host ("Attempting to connect to Azure...") -ForegroundColor Yellow -NoNewline}
         #region connect to Azure if not already connected
         Try{
             If(($null -eq $Context.Subscription.SubscriptionId) -or ($null -eq $Context.Subscription.Name))
@@ -778,9 +814,17 @@ Function Connect-MyAzureEnvironment{
                 }Else{
                     $AzAccount = Connect-AzAccount -ErrorAction Stop
                 }
-                $AzSubscription = Get-AzSubscription -WarningAction SilentlyContinue | Out-GridView -PassThru -Title "Select a valid Azure Subscription" | Select-AzSubscription -WarningAction SilentlyContinue
+                $AzSubscription += Get-AzSubscription -WarningAction SilentlyContinue | Out-GridView -PassThru -Title "Select a valid Azure Subscription" | Select-AzSubscription -WarningAction SilentlyContinue
                 Set-AzContext -Tenant $AzSubscription.Subscription.TenantId -Subscription $AzSubscription.Subscription.id | Out-Null
                 If($VerbosePreference){Write-Host ("Successfully connected to Azure!") -ForegroundColor Green}
+                <#
+                $MyRGs += Get-AzResourceGroup | Select -ExpandProperty ResourceGroupName
+                If(($global:myResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:myResourceGroup)){
+                    $global:myResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select -ExpandProperty ResourceGroupName
+                    #set the new context based on found RG
+                    Set-AzDefault -ResourceGroupName $global:myResourceGroup -Force | Out-Null
+                }
+                #>
             }
             Else{
                 If($VerbosePreference){Write-Host ("Already connected to Azure using account [{0}] and subscription [{1}]" -f $Context.Account.Id,$Context.Subscription.Name) -ForegroundColor Green}
@@ -792,7 +836,7 @@ Function Connect-MyAzureEnvironment{
         }
         Finally{
             #To suppress these warning messages
-            Write-Verbose ("Supressing Azure Powershell change warnings...")
+            Write-Verbose ("Suppressing Azure Powershell change warnings...")
             Set-Item Env:\SuppressAzurePowerShellBreakingChangeWarnings "true" | Out-Null
 
             $MyRGs += Get-AzResourceGroup | Select -ExpandProperty ResourceGroupName
@@ -813,6 +857,7 @@ Function Connect-MyAzureEnvironment{
     End{
         #once logged in, set defaults context
         Get-AzContext
+        Stop-Transcript | Out-Null
     }
 
 }
@@ -835,14 +880,18 @@ Function Get-MyAzureNSGRules{
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:myResourceGroup
+        [string]$ResourceGroupName
     )
     Begin
     {
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:myResourceGroup = $ResourceGroupName
-        }
+        ## Get the name of this function
+        [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
+        #build log name
+        [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+        Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
+        #attempt connection to Azure. If connection is not successfull clear all settings and try again
         Try{
             $Null = Connect-MyAzureEnvironment -ErrorAction Stop
         }
@@ -850,31 +899,41 @@ Function Get-MyAzureNSGRules{
             Connect-MyAzureEnvironment -ClearAll
         }
 
-        $nics = @()
-        $report = @()
-
-        If($null -eq $ResourceGroupName){
-            Break
+        #overwrite global resource group is parameter is called
+        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
+             $global:myResourceGroup = $ResourceGroupName
+        }Else{
+             $ResourceGroupName = $global:myResourceGroup
         }
 
-        $Vnets = Get-AzVirtualNetwork -ResourceGroupName $global:myResourceGroup
-        $NSGs = Get-AzNetworkSecurityGroup -ResourceGroupName $global:myResourceGroup
+        #if resource group is blank, throw an error
+        If($null -eq $ResourceGroupName){
+            Throw "Resource group name has not been specified"
+        }
+
+        $nics = @()
+        $report = @()
+        $subnetIds = @()
+
+        $Vnets = Get-AzVirtualNetwork -ResourceGroupName $ResourceGroupName
+        $NSGs = Get-AzNetworkSecurityGroup -ResourceGroupName $ResourceGroupName
     }
     Process
     {
         #get subnets
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
+            #TEST $VM = $VMname
             Foreach($VM in $VMName)
             {
-                If(Get-MyAzureVM -VMname $VM -ResourceGroupName $global:myResourceGroup){
-                    $nics += Get-AzNetworkInterface -ResourceGroupName $global:myResourceGroup | ?{ $_.VirtualMachine.id -like "*$VM*"}
-                    #$nics += Get-AzNetworkInterface -ResourceGroupName $global:myResourceGroup | ?{ $_.VirtualMachine.Id.tostring().substring($_.VirtualMachine.Id.tostring().lastindexof('/')+1) -eq $VM}
-                    $subnetIds = $nics.IpConfigurations.subnet.id
+                If(Get-MyAzureVM -VMname $VM -ResourceGroupName $ResourceGroupName){
+                    $nics += Get-AzNetworkInterface -ResourceGroupName $ResourceGroupName | ?{ $_.VirtualMachine.id -like "*$VM*"}
+                    #$nics += Get-AzNetworkInterface -ResourceGroupName $ResourceGroupName | ?{ $_.VirtualMachine.Id.tostring().substring($_.VirtualMachine.Id.tostring().lastindexof('/')+1) -eq $VM}
+                    $subnetIds += $nics.IpConfigurations.subnet.id
                 }
             }
         }
         Else{
-            $nics = Get-AzNetworkInterface -ResourceGroupName $global:myResourceGroup | ?{ $_.VirtualMachine -ne $null} #skip Nics with no VM
+            $nics = Get-AzNetworkInterface -ResourceGroupName $ResourceGroupName | ?{$null -ne $_.VirtualMachine} #skip Nics with no VM
             $subnetIds = $nics.IpConfigurations.subnet.id
         }
 
@@ -882,6 +941,7 @@ Function Get-MyAzureNSGRules{
         $subnetIds = $subnetIds | Select -Unique
 
         #loop through all subnets
+         #TEST $SubnetId = $subnetIds
         Foreach($SubnetId in $subnetIds)
         {
             $subnetName = ($subnetId.Split("/")[-1])
@@ -889,7 +949,8 @@ Function Get-MyAzureNSGRules{
             $VnetSubnet = $Vnets | Where {$_.Subnets.Id -eq $subnetId}
             #check if NSG exists on subnet
             $VnetNSGId = $VnetSubnet.Subnets.NetworkSecurityGroup.id
-
+            #$Null -ne $NSGs.NetworkInterfaces
+            #$Null -ne $NSGs.Subnets
             #if NSG exists on subnet; grab the name and configs
             If($null -ne $VnetNSGId){
                 $VnetNSGName = ($VnetNSGId).Split("/")[-1]
@@ -934,8 +995,9 @@ Function Get-MyAzureNSGRules{
             }
         }
         Else{
-            return $report
+            $report
         }
+        Stop-Transcript | Out-Null
     }
 }
 
@@ -952,28 +1014,25 @@ Function Get-MyAzureVM{
         [Alias("VM")]
         [string[]]$VMname,
 
-        [Parameter(Mandatory = $true,
-            ValueFromPipeline=$True,
-            ValueFromPipelineByPropertyName = $true,
-            Position = 0,
-            ParameterSetName = 'AllParameterSet')]
-        [switch]$All,
-
         [Parameter(Mandatory = $false,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:myResourceGroup,
+        [string]$ResourceGroupName,
 
         [switch]$NetworkDetails,
 
         [switch]$NoStatus
     )
     Begin{
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:myResourceGroup = $ResourceGroupName
-        }
+        ## Get the name of this function
+        [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
+        #build log name
+        [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+        Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
+        #attempt connection to Azure. If connection is not successfull clear all settings and try again
         Try{
             $Null = Connect-MyAzureEnvironment -ErrorAction Stop
         }
@@ -981,51 +1040,76 @@ Function Get-MyAzureVM{
             Connect-MyAzureEnvironment -ClearAll
         }
 
-        If($null -eq $ResourceGroupName){
-            Break
+        #overwrite global resource group is parameter is called
+        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
+             $global:myResourceGroup = $ResourceGroupName
+        }Else{
+             $ResourceGroupName = $global:myResourceGroup
         }
 
-        $nics = @()
-        $VMs = @()
-        $report = @()
+        #if resource group is blank, throw an error
+        If($null -eq $ResourceGroupName){
+            Throw "Resource group name has not been specified"
+        }
+
+        #default to showing status (like verbose) unless noStatus is in param
+        if ($PSBoundParameters.ContainsKey('NoStatus')) {
+            $ShowStatus=$false
+        }
+        else{
+            $ShowStatus=$true
+        }
 
         if ($PSBoundParameters.ContainsKey('NetworkDetails'))
         {
-            If(!$NoStatus){Write-Host 'Collecting network information...' -ForegroundColor DarkGray -NoNewline}
+            If($ShowStatus){Write-Host 'Collecting network information...' -ForegroundColor DarkGray -NoNewline}
             #grab all public IP's
-            $PublicIPs = Get-AzPublicIpAddress -ResourceGroupName $global:myResourceGroup
+            $PublicIPs = Get-AzPublicIpAddress -ResourceGroupName $ResourceGroupName
 
-            $NSGRules = Get-MyAzureNSGRules -ResourceGroupName $global:myResourceGroup
-            If(!$NoStatus){Write-Host 'completed' -ForegroundColor Green}
+            $NSGRules = Get-MyAzureNSGRules -ResourceGroupName $ResourceGroupName
+            If($ShowStatus){Write-Host 'completed' -ForegroundColor Green}
         }
-        $myPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' -Verbose:$false | Select-Object -ExpandProperty IP
+
+        #show the appropiate message
+        If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
+            If($ShowStatus){Write-Host ("Collecting Azure VM with names [{0}]..." -f ($VMName -join ",")) -ForegroundColor DarkGray -NoNewline}
+        }Else{
+            If($ShowStatus){Write-Host "Collecting all Azure VM's..." -ForegroundColor DarkGray -NoNewline}
+        }
+
+        $vmNics = @()
+        $VMs = @()
+        $report = @()
+
+        #pull all NIC that are attached to Virtual Machine's
+        $nics = Get-AzNetworkInterface -ResourceGroupName $ResourceGroupName | ?{$null -ne $_.VirtualMachine}
+        #pull all Virtual Machine's; this is easier and faster than build VM's list one at a time.
+        $AllVMs = Get-AzVM -ResourceGroupName $ResourceGroupName -Status -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     }
     Process{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
-            If(!$NoStatus){Write-Host ("Collecting Azure VM with names [{0}]..." -f ($VMName -join ",")) -ForegroundColor DarkGray -NoNewline}
+            #filter out only listed VM's
+            #TEST $VM = $VMname
             Foreach($VM in $VMName)
             {
-                If( Get-AzVM -ResourceGroupName $global:myResourceGroup -VMName $VM -ErrorAction SilentlyContinue -WarningAction SilentlyContinue ){
-                    $nics += Get-AzNetworkInterface -ResourceGroupName $global:myResourceGroup | ?{ $_.VirtualMachine.id -like "*$VM*"}
-                    #$nics += Get-AzNetworkInterface -ResourceGroupName $global:myResourceGroup | ?{ $_.VirtualMachine.Id.tostring().substring($_.VirtualMachine.Id.tostring().lastindexof('/')+1) -eq $VM}
-                    $VMs += Get-AzVM -ResourceGroupName $global:myResourceGroup -VMName $VM -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-                }
+                $vmNics += $nics | ?{ $_.VirtualMachine.id -like "*$VM"}
+                $VMs += $AllVMs | ?{$_.Name -eq $VM}
             }
-            If(!$NoStatus){Write-Host 'completed' -ForegroundColor Green}
+            If($ShowStatus){Write-Host 'completed' -ForegroundColor Green}
         }
         Else{
-            If(!$NoStatus){Write-Host "Collecting all Azure VM's..." -ForegroundColor DarkGray -NoNewline}
-            $nics = Get-AzNetworkInterface -ResourceGroupName $global:myResourceGroup | ?{ $_.VirtualMachine -ne $null} #skip Nics with no VM
-            $VMs = Get-AzVM -ResourceGroupName $global:myResourceGroup -Status -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-            If(!$NoStatus){Write-Host 'completed' -ForegroundColor Green}
+            $VMs = $AllVMs
+            $vmNics = $nics
+            If($ShowStatus){Write-Host 'completed' -ForegroundColor Green}
         }
 
         if ($PSBoundParameters.ContainsKey('NetworkDetails'))
         {
             #list VM and their network info
-            foreach($nic in $nics)
+            #TEST $nic = $vmNics[4]
+            foreach($nic in $vmNics)
             {
-                If(!$NoStatus){Write-Host '.' -ForegroundColor DarkGray -NoNewline}
+                If($ShowStatus){Write-Host '.' -ForegroundColor DarkGray -NoNewline}
                 # add vm values to
                 [psobject]$VM = $VMs | where-object -Property Id -eq $nic.VirtualMachine.id
 
@@ -1035,7 +1119,7 @@ Function Get-MyAzureVM{
 
                     #filter NSG rules
                     If($NSGRules -ne 'disabled'){
-                        $JITRules = $NSGRules | Where {($_.DestinationAddress -eq $nic.IpConfigurations.PrivateIpAddress) -and ($_.SourceAddress -eq $myPublicIP) -and ($_.Access -eq 'Allow')}
+                        $JITRules = $NSGRules | Where {($_.DestinationAddress -eq $nic.IpConfigurations.PrivateIpAddress) -and ($_.SourceAddress -eq $global:myPublicIP) -and ($_.Access -eq 'Allow')}
                         If($JITRules){$JITAccess = $true}Else{$JITAccess = $false}
                     }
                     Else{
@@ -1067,7 +1151,7 @@ Function Get-MyAzureVM{
             return $VMs
         }
     }
-    End{}
+    End{Stop-Transcript | Out-Null}
 
 }
 
@@ -1088,26 +1172,23 @@ Function Start-MyAzureVM{
         [Alias("VM")]
         [string[]]$VMName,
 
-        [Parameter(Mandatory = $true,
-            ValueFromPipeline=$True,
-            ValueFromPipelineByPropertyName = $true,
-            Position = 0,
-            ParameterSetName = 'AllParameterSet')]
-        [switch]$All,
-
         [Parameter(Mandatory = $False,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:myResourceGroup,
+        [string]$ResourceGroupName,
 
         [switch]$NoStatus
     )
     Begin{
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:myResourceGroup = $ResourceGroupName
-        }
+         ## Get the name of this function
+         [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
+         #build log name
+         [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+         Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
+        #attempt connection to Azure. If connection is not successfull clear all settings and try again
         Try{
             $Null = Connect-MyAzureEnvironment -ErrorAction Stop
         }
@@ -1115,45 +1196,53 @@ Function Start-MyAzureVM{
             Connect-MyAzureEnvironment -ClearAll
         }
 
+        #overwrite global resource group is parameter is called
+        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
+             $global:myResourceGroup = $ResourceGroupName
+        }Else{
+             $ResourceGroupName = $global:myResourceGroup
+        }
+
+        #if resource group is blank, throw an error
+        If($null -eq $ResourceGroupName){
+            Throw "Resource group name has not been specified"
+        }
+
+        #default to showing status (like verbose) unless noStatus is in param
         if ($PSBoundParameters.ContainsKey('NoStatus')) {
-            $Status=$true
+            $ShowStatus=$false
         }
         else{
-            $Status=$false
+            $ShowStatus=$true
         }
-        $StatusParam = @{NoStatus=$Status}
 
         $VMs = @()
-
-        If($null -eq $ResourceGroupName){
-            Break
-        }
     }
     Process{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
+             #TEST $VM = $VMname
             Foreach($VM in $VMName)
             {
                 $startedmessage = ("{0} is started already!" -f $VM)
-                $VMs += Get-MyAzureVM -VMName $VM -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus | Where {$_.State -ne 'Running'}
+                $VMs += Get-MyAzureVM -VMName $VM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus | Where {$_.State -ne 'Running'}
             }
         }
-
         Else{
             $startedmessage = "All VM's are started already!"
-            $VMs = Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus | Where {$_.State -ne 'Running'}
+            $VMs = Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus | Where {$_.State -ne 'Running'}
         }
 
-        If(!$NoStatus){Write-Host 'Collecting VM running status...' -ForegroundColor DarkGray -NoNewline}
+        If($ShowStatus){Write-Host 'Collecting VM running status...' -ForegroundColor DarkGray -NoNewline}
 
         If($VMs.count -eq 0){
-            If(!$NoStatus){Write-Host $startedmessage -ForegroundColor Green}
+            If($ShowStatus){Write-Host $startedmessage -ForegroundColor Green}
         }
         Else{
             #start all deallocated VM's
             foreach ($VM in $VMs)
             {
-                If(!$NoStatus){write-host ("Attempting to start VM: {0}" -f $VM.VMName)}
-                Start-AzVM -Name $VM.VMName -ResourceGroupName $global:myResourceGroup -asJob | Out-Null
+                If($ShowStatus){write-host ("Attempting to start VM: {0}" -f $VM.VMName)}
+                Start-AzVM -Name $VM.VMName -ResourceGroupName $ResourceGroupName -asJob | Out-Null
             }
         }
     }
@@ -1161,12 +1250,13 @@ Function Start-MyAzureVM{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                Get-MyAzureVM -VMName $VM -ResourceGroupName $global:myResourceGroup -NetworkDetails @StatusParam
+                Get-MyAzureVM -VMName $VM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
             }
         }
         Else{
-            Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails @StatusParam
+            Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
         }
+        Stop-Transcript | Out-Null
     }
 }
 
@@ -1178,6 +1268,8 @@ Function Extract-MaxDuration ([string]$InStr) {
     catch {return 0}
 }
 
+#https://github.com/CharbelNemnom/Power-MVP-Elite/blob/master/Request%20JIT%20VM%20Access/Request-JITVMAccess.ps1
+#https://docs.microsoft.com/en-us/powershell/module/az.security/start-azjitnetworkaccesspolicy?view=azps-5.9.0
 Function Set-MyJitAccess{
     [CmdletBinding(DefaultParameterSetName = 'ListParameterSet',
         HelpUri = 'https://go.microsoft.com/fwlink/?LinkID=398573',
@@ -1191,33 +1283,29 @@ Function Set-MyJitAccess{
         [Alias("VM")]
         [string[]]$VMName,
 
-        [Parameter(Mandatory = $true,
-            ValueFromPipeline=$True,
-            ValueFromPipelineByPropertyName = $true,
-            Position = 0,
-            ParameterSetName = 'AllParameterSet')]
-        [switch]$All,
-
         [Parameter(Mandatory = $False,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:myResourceGroup,
+        [string]$ResourceGroupName,
 
         [int]$Port = 3389,
-
+        [int]$MaxTime = 3,
         [string]$SourceIP,
-
 
         [switch]$force,
 
         [switch]$NoStatus
     )
     Begin{
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:myResourceGroup = $ResourceGroupName
-        }
+        ## Get the name of this function
+        [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
+        #build log name
+        [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+        Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
+        #attempt connection to Azure. If connection is not successfull clear all settings and try again
         Try{
             $Null = Connect-MyAzureEnvironment -ErrorAction Stop
         }
@@ -1225,28 +1313,35 @@ Function Set-MyJitAccess{
             Connect-MyAzureEnvironment -ClearAll
         }
 
-        if ($PSBoundParameters.ContainsKey('NoStatus')) {
-            $Status=$true
+        #overwrite global resource group is parameter is called
+        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $global:myResourceGroup = $ResourceGroupName
+        }Else{
+            $ResourceGroupName = $global:myResourceGroup
         }
-        else{
-            $Status=$false
+
+        #if resource group is blank, throw an error
+        If($null -eq $ResourceGroupName){
+            Throw "Resource group name has not been specified"
         }
-        $StatusParam = @{NoStatus=$Status}
 
-        $VMs = @();
-
-        If(-Not $PSBoundParameters.ContainsKey('SourceIP')){
+        If(-Not($PSBoundParameters.ContainsKey('SourceIP')) ){
             $SourceIP = Invoke-RestMethod 'http://ipinfo.io/json' -Verbose:$false | Select-Object -ExpandProperty IP
         }
 
-        If($null -eq $ResourceGroupName){
-            Break
+        #default to showing status (like verbose) unless noStatus is in param
+        if ($PSBoundParameters.ContainsKey('NoStatus')) {
+            $ShowStatus=$false
+        }
+        else{
+            $ShowStatus=$true
         }
 
         #grab all current JIT requests first
-        $VMJitAccessPolicy = Get-AzJitNetworkAccessPolicy -ResourceGroupName $global:myResourceGroup
+        $VMJitAccessPolicy = Get-AzJitNetworkAccessPolicy -ResourceGroupName $ResourceGroupName
         #grab all NSG rules
-        $NSGRules = Get-MyAzureNSGRules -ResourceGroupName $global:myResourceGroup
+        $NSGRules = Get-MyAzureNSGRules -ResourceGroupName $ResourceGroupName
+        $VMs = @();
     }
     Process{
         If(!$VMJitAccessPolicy -or !$NSGRules -or ($NSGRules -eq 'disabled')){Continue}
@@ -1254,11 +1349,11 @@ Function Set-MyJitAccess{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                $VMs += Get-MyAzureVM -VMname $VM -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus
+                $VMs += Get-MyAzureVM -VMname $VM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
             }
         }
         Else{
-            $VMs = Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus
+            $VMs = Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
         }
 
         foreach ($VM in $VMs)
@@ -1271,20 +1366,20 @@ Function Set-MyJitAccess{
             }
 
             If($Port -notin $VMAccessPorts){
-                If(!$NoStatus){write-host ("JIT Policy does not allow port [{0}] for remote access on [{1}]" -f $Port,$VM.VMName) -ForegroundColor red}
+                If($ShowStatus){write-host ("JIT Policy does not allow port [{0}] for remote access on [{1}]" -f $Port,$VM.VMName) -ForegroundColor red}
                 Continue  #stop current loop but CONTINUE next one
             }
 
-            $MaxTime = Extract-MaxDuration $VMAllPortsDetails.MaxRequestAccessDuration
+            #$MaxTime = Extract-MaxDuration ($VMAllPortsDetails.MaxRequestAccessDuration | Select -First 1)
             $Date = (Get-Date).ToUniversalTime().AddHours($MaxTime)
             $endTimeUtc = Get-Date -Date $Date -Format o
 
             If($null -eq $SourceIP){
-                If(!$NoStatus){write-host ("Unable to get your Source IP. JIT request is canceled") -ForegroundColor red}
+                If($ShowStatus){write-host ("Unable to get your Source IP. JIT request is canceled") -ForegroundColor red}
                 Break
             }
 
-            If(!$NoStatus){Write-Host ("Validating Just-In-Time access for [{0}] on port [{1}]..." -f $VM.VMName,$Port) -NoNewline}
+            If($ShowStatus){Write-Host ("Validating Just-In-Time access for [{0}] on port [{1}]..." -f $VM.VMName,$Port) -NoNewline}
 
             $JITexists = $NSGRules | Where { ($_.DestinationAddress -eq $VM.LocalIP) -and ($_.SourceAddress -eq $SourceIP) -and ($_.Access -eq 'Allow')}
 
@@ -1303,17 +1398,22 @@ Function Set-MyJitAccess{
                 $JitPolicyArr = @($JitPolicy)
 
                 Try{
-                    If(!$NoStatus){Write-Host 'Requesting Just-in-time access...' -ForegroundColor Gray -NoNewline}
+                    If($ShowStatus){Write-Host 'Requesting Just-in-time access...' -ForegroundColor Gray -NoNewline}
+                    #$ResourceId = '/subscriptions/cb673656-d089-4158-a27a-628bf324ce44/resourceGroups/dtolab-sitea-rg/providers/Microsoft.Security/locations/eastus/jitNetworkAccessPolicies/default'
                     Start-AzJitNetworkAccessPolicy -ResourceId "/subscriptions/$SubscriptionID/resourceGroups/$($VM.ResourceGroup)/providers/Microsoft.Security/locations/$($VM.Location)/jitNetworkAccessPolicies/default" `
                                                     -VirtualMachine $JitPolicyArr -ErrorAction Stop | Out-Null
-                    If(!$NoStatus){Write-Host 'Success' -ForegroundColor Green}
+                    If($ShowStatus){Write-Host 'Success' -ForegroundColor Green}
                 }
                 Catch{
-                    If(!$NoStatus){Write-Host ("Failed to request JIT access on VM [{0}]. Error: {1}" -f $VM.VMName,$_.Exception.Message) -ForegroundColor Red}
+                    If($VerbosePreference -eq 'Continue'){
+                        Write-Host ("Failed to request JIT access on VM [{0}]. Error: {1}{2}" -f $VM.VMName,$_.Exception.ItemName,$_.Exception.Message) -ForegroundColor Red
+                    }Else{
+                        If($ShowStatus){Write-Host ("Failed to request JIT access on VM [{0}]." -f $VM.VMName) -ForegroundColor red}
+                    }
                 }
             }
             Else{
-                If(!$NoStatus){Write-Host 'Exists' -ForegroundColor Green}
+                If($ShowStatus){Write-Host 'Exists' -ForegroundColor Green}
             }
         }#end loop
     }
@@ -1321,12 +1421,13 @@ Function Set-MyJitAccess{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                Get-MyAzureVM -VMName $VM -ResourceGroupName $global:myResourceGroup -NetworkDetails @StatusParam
+                Get-MyAzureVM -VMName $VM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
             }
         }
         Else{
-            Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails @StatusParam
+            Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
         }
+        Stop-Transcript | Out-Null
 
     }
 }
@@ -1341,24 +1442,22 @@ Function Enable-JitPolicy{
         [Alias("VM")]
         [string[]]$VMName,
 
-        [Parameter(Mandatory = $true,
-            ValueFromPipeline=$True,
-            ValueFromPipelineByPropertyName = $true,
-            Position = 0,
-            ParameterSetName = 'AllParameterSet')]
-        [switch]$All,
-
         [Parameter(Mandatory = $False,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:myResourceGroup
+        [string]$ResourceGroupName
     )
-    Begin{
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:myResourceGroup = $ResourceGroupName
-        }
+    Begin
+    {
+        ## Get the name of this function
+        [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
+        #build log name
+        [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+        Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
+        #attempt connection to Azure. If connection is not successfull clear all settings and try again
         Try{
             $Null = Connect-MyAzureEnvironment -ErrorAction Stop
         }
@@ -1366,27 +1465,28 @@ Function Enable-JitPolicy{
             Connect-MyAzureEnvironment -ClearAll
         }
 
-        if ($PSBoundParameters.ContainsKey('NoStatus')) {
-            $Status=$true
+        #overwrite global resource group is parameter is called
+        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $global:myResourceGroup = $ResourceGroupName
+        }Else{
+            $ResourceGroupName = $global:myResourceGroup
         }
-        else{
-            $Status=$false
-        }
-        $StatusParam = @{NoStatus=$Status}
 
+        #if resource group is blank, throw an error
         If($null -eq $ResourceGroupName){
-            Break
+            Throw "Resource group name has not been specified"
         }
     }
-    Process{
+    Process
+    {
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                $VMs += Get-MyAzureVM -VMname $VM -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus
+                $VMs += Get-MyAzureVM -VMname $VM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
             }
         }
         Else{
-            $VMs = Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus
+            $VMs = Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
         }
 
         Foreach($VM in $VMName){
@@ -1406,11 +1506,12 @@ Function Enable-JitPolicy{
             #Insert the VM just-in-time VM access rules into an array
             $JitPolicyArr=@($JitPolicy)
             #Configure the just-in-time VM access rules on the selected VM:
-            Set-AzJitNetworkAccessPolicy -Kind "Basic" -Location $VM.Location -Name "default" -ResourceGroupName $global:myResourceGroup -VirtualMachine $JitPolicyArr
+            Set-AzJitNetworkAccessPolicy -Kind "Basic" -Location $VM.Location -Name "default" -ResourceGroupName $ResourceGroupName -VirtualMachine $JitPolicyArr
+            $jitString = ('id=' + $JitPolicyArr.id + ';ports={maxRequestAccessDuration=' + $JitPolicyArr.ports.maxRequestAccessDuration[0] + '}')
+            #If($VerbosePreference -eq 'Continue'){Write-Host "Command: Set-AzJitNetworkAccessPolicy -Kind "Basic" -Location $($VM.Location) -ResourceGroupName $ResourceGroupName -VirtualMachine {$jitString}" -ForegroundColor Yellow}
         }
     }
-    End{
-    }
+    End{Stop-Transcript | Out-Null}
 }
 
 Function Start-MyAzureEnvironment{
@@ -1426,62 +1527,63 @@ Function Start-MyAzureEnvironment{
         [Alias("VM")]
         [string[]]$VMName,
 
-        [Parameter(Mandatory = $true,
-            ValueFromPipeline=$True,
-            ValueFromPipelineByPropertyName = $true,
-            Position = 0,
-            ParameterSetName = 'AllParameterSet')]
-        [switch]$All,
-
         [Parameter(Mandatory = $false,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:myResourceGroup
+        [string]$ResourceGroupName
     )
-    Begin{
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:myResourceGroup = $ResourceGroupName
-        }
+    Begin
+    {
+        ## Get the name of this function
+        [string]${CmdletName} = $PSCmdlet.MyInvocation.MyCommand.Name
 
+        #build log name
+        [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
+        Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
+
+        #attempt connection to Azure. If connection is not successfull clear all settings and try again
         Try{
-            $null = Connect-MyAzureEnvironment -ErrorAction Stop
+            $Null = Connect-MyAzureEnvironment -ErrorAction Stop
         }
         Catch{
             Connect-MyAzureEnvironment -ClearAll
         }
-        Finally{
-            Write-host $_
+
+        #overwrite global resource group is parameter is called
+        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $global:myResourceGroup = $ResourceGroupName
+        }Else{
+            $ResourceGroupName = $global:myResourceGroup
         }
 
-        $VMs = @();
-
-        $myPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' -Verbose:$false | Select-Object -ExpandProperty IP
-
+        #if resource group is blank, throw an error
         If($null -eq $ResourceGroupName){
-            Break
+            Throw "Resource group name has not been specified"
         }
+
+        $VMs = @()
     }
-    Process{
+    Process
+    {
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Write-Host ("Please wait while collecting Azure VM with names [{0}]..." -f ($VMName -join ",")) -ForegroundColor Gray -NoNewline
+            #TEST $VM = $VMName
             Foreach($VM in $VMName)
             {
-                $VMs += Get-MyAzureVM -VMname $VM -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus
+                $VMs += Get-MyAzureVM -VMname $VM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
             }
         }
         Else{
             Write-Host ("Please wait while collecting all Azure VM's...") -ForegroundColor Gray -NoNewline
-            $VMs = Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails -NoStatus
-        }
-        If($VMs.count -eq 1){
-            Write-host ("[{0}] vm found" -f $VMs.count) -ForegroundColor Green
-        }
-        Else{
-            Write-host ("[{0}] vm's found" -f $VMs.count) -ForegroundColor Green
+            $VMs = Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
         }
 
+        #Write output cleaniung based on number
+        If($VMs.count -eq 1){Write-host ("[{0}] vm found" -f $VMs.count) -ForegroundColor Green}
+        Else{Write-host ("[{0}] vm's found" -f $VMs.count) -ForegroundColor Green}
 
+        #TEST $VM = $VMs[0]
         foreach ($VM in $VMs)
         {
             Write-host ("Ensuring VM: ") -ForegroundColor Gray -NoNewline
@@ -1491,23 +1593,28 @@ Function Start-MyAzureEnvironment{
                 Write-host ("  Checking power state...") -ForegroundColor Gray -NoNewline
 
                 If($VM.State -ne 'Running'){
-                    $vmstate = Start-MyAzureVM -VMName $VM.VMName -ResourceGroupName $global:myResourceGroup -NoStatus
                     Write-host ("starting") -ForegroundColor Green
+                    #If($VerbosePreference -eq 'Continue'){Write-Host "Command: Start-MyAzureVM -VMName $($VM.VMName) -ResourceGroupName $ResourceGroupName -NoStatus" -ForegroundColor Yellow}
+                    $vmstate = Start-MyAzureVM -VMName $VM.VMName -ResourceGroupName $ResourceGroupName -NoStatus
                 }Else{
                     Write-host ("running") -ForegroundColor Green
                 }
             }
             Catch{
-                Write-host ("failed to start") -ForegroundColor red
+                If($VerbosePreference -eq 'Continue'){
+                    Write-host ("failed to start: {0}" -f $_.Exception.ItemName) -ForegroundColor red
+                }Else{
+                    Write-host ("failed to start") -ForegroundColor red
+                }
             }
 
             If( ($VM.JITAccess -ne 'disabled') -and ($null -ne $VM.PublicIP) ){
                 Try{
                     Write-host ("  Checking Just-In-Time policy for IP: ") -ForegroundColor Gray -NoNewline
-                    Write-host ("{0}" -f $myPublicIP) -NoNewline
+                    Write-host ("{0}" -f $global:myPublicIP) -NoNewline
                     Write-host ("...") -ForegroundColor Gray -NoNewline
-
-                    $jitaccess = Set-MyJitAccess -VMName $VM.VMName -ResourceGroupName $global:myResourceGroup -NoStatus
+                    #If($VerbosePreference -eq 'Continue'){Write-Host "Command: Set-MyJitAccess -VMName $($VM.VMName) -ResourceGroupName $ResourceGroupName -NoStatus" -ForegroundColor Yellow}
+                    $jitaccess = Set-MyJitAccess -VMName $VM.VMName -ResourceGroupName $ResourceGroupName -NoStatus
 
                     If($jitaccess.JITAccess -eq $True){
                         Write-host ("allowed") -ForegroundColor Green
@@ -1516,15 +1623,19 @@ Function Start-MyAzureEnvironment{
                     }
                 }
                 Catch{
-                    Write-host ("failed to enable JIT") -ForegroundColor red
-                    #Write-host ($_.Exception.Message) -ForegroundColor red
+                    If($VerbosePreference -eq 'Continue'){
+                        Write-host ("failed to enable JIT: {0}" -f $_.Exception.ItemName) -ForegroundColor red
+                    }Else{
+                        Write-host ("failed enable JIT") -ForegroundColor red
+                    }
                 }
             }
 
         }#end loop
     }
     End{
-        Get-MyAzureVM -All -ResourceGroupName $global:myResourceGroup -NetworkDetails | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
+        Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
+        Stop-Transcript | Out-Null
     }
 }
 
@@ -1564,11 +1675,22 @@ Function Get-MyAzureUserName{
     Param (
         [switch]$firstname
 	)
-    If(Test-Path "$env:LOCALAPPDATA\.IdentityService\V2AccountStore.json" -ErrorAction SilentlyContinue){
+    If(Test-Path "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\16.0\Common\Identity" -ErrorAction SilentlyContinue){
+        $IDDisplayName = Get-ItemPropertyValue "Registry::HKEY_CURRENT_USER\SOFTWARE\Microsoft\Office\16.0\Common\Identity" -Name ADUserDisplayName
+        If($null -ne $IDDisplayName){
+            $Name = $IDDisplayName
+        }Else{
+            $Name = $Env:UserName
+        }
+    }
+    ElseIf(Test-Path "$env:LOCALAPPDATA\.IdentityService\V2AccountStore.json" -ErrorAction SilentlyContinue){
         $IDStore = Get-content "$env:LOCALAPPDATA\.IdentityService\V2AccountStore.json"
         $IDPayload = ($IDStore | ConvertFrom-Json).Properties.IdTokenPayload
-        $Name = ($IDPayload | ConvertFrom-Json).name | Select -Last 1
-    }Else{
+        If($null -ne $IDPayload){
+            $Name = ($IDPayload | ConvertFrom-Json).name | Select -Last 1
+        }
+    }
+    Else{
         $Name = $Env:UserName
     }
 
@@ -1596,6 +1718,7 @@ Function Generate-HyperVMSerialNumber{
     "$(Get-RandomAlphanumericString -length 3)$(Get-random -Minimum 1000000 -Maximum 9999999)$(Get-RandomAlphanumericString -length 2)"
 
 }
+
 Function Get-MyHyperVM{
     Param(
         [Parameter(Mandatory = $true, Position = 0)]
@@ -1712,7 +1835,7 @@ Function Start-MDTSimulator{
     Param(
         [Parameter(Mandatory = $False,
             Position = 0)]
-        [string]$MDTSimulatorPath = 'C:\MDTSimulator',
+        [string]$MDTSimulatorPath = $global:MyMDTSimulatorPath,
 
         [parameter(Mandatory=$false)]
         [ValidateSet('MDT','PSD')]
@@ -1723,7 +1846,7 @@ Function Start-MDTSimulator{
         [string]$Environment = 'Powershell',
 
         [parameter(Mandatory=$false)]
-        [string]$DeploymentShare = '\\192.168.1.10\DEP-PSD$'
+        [string]$DeploymentShare = $global:MyDeploymentShare
     )
 
     Get-Process TS* | Stop-Process -Force
@@ -1900,7 +2023,7 @@ Function Show-MyCommands
     Write-Host "  eg. Start-MyAzureEnvironment -VMName DC01,CA01,PR01" -ForegroundColor DarkGray
     Write-Host "==================================================================" -ForegroundColor Green
     Write-Host 'Your Public IP is: ' -ForegroundColor Gray -NoNewline
-    Write-Host $myPublicIP -ForegroundColor Cyan
+    Write-Host $global:myPublicIP -ForegroundColor Cyan
     Write-Host ""
 }
 

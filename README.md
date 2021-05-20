@@ -11,10 +11,10 @@ There are some areas that needs to be modified. The very first function, __Set-M
 ```powershell
 #My Azure Site B lab
 'SiteB' {
-            $global:myTenantID = '<your tenant ID>'
-            $global:mySubscriptionName = '<your subscription name>'
-            $global:mySubscriptionID = '<your subscription ID>'
-            $global:myResourceGroup = '<your resource group>'
+            $myTenantID = '<your tenant ID>'
+            $mySubscriptionName = '<your subscription name>'
+            $mySubscriptionID = '<your subscription ID>'
+            $myResourceGroup = '<your resource group>'
         }
 ```
 Make sure to update _[ValidateSet()]_ in the param section (line 25) as well if you add new site names.
