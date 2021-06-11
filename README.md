@@ -64,20 +64,34 @@ NSG assigned to VMs __nic__ and only enabled JIT for the ones with public IP's
 ## Functions Included
 THe functions are the main functions to manage your virtual environment. However there are a lot of other functions available in this script:
 
-- Test-IsISE
-- Test-VSCode
-- Test-VSCodeInstall
-- Start-VSCodeInstall
-- Install-LatestModule
+UPDATE 06/11/2021: All command verbs will start with _My_
+
 - Connect-MyAzureEnvironment
+- Create-MyAzureVM
+- Enable-MyAzureJitPolicy
 - Get-MyAzureNSGRules
-- Get-MyAzureVM
-- Set-MyJitAccess
-- Set-MyAzureEnvironment
-- Start-MyAzureVM
-- Start-MyAzureEnvironment
 - Get-MyAzureUserName
+- Get-MyAzureVM
 - Get-MyHyperVM
-- Kill-MyHyperVM
+- Get-MyRandomAlphanumericString
+- Get-MyRandomSerialNumber
+- Get-MyRemoteDesktopData
+- Get-MyVolumeLevel
+- Install-MyLatestModule
+- Open-MyFile
+- Out-MyVoice
 - Restart-MyHyperV
+- Set-MyAzureEnvironment
+- Set-MyAzureJitPolicy
+- Set-MyVolumeLevel
+- Set-MyWindowPosition
 - Show-MyCommands
+- Start-MyAzureEnvironment
+- Start-MyAzureVM
+- Start-MyElevatedProcess
+- Start-MyMDTSimulator
+- Start-MyVSCodeInstall
+- Stop-MyHyperVM
+- Test-MyIsAdmin
+- Test-MyVSCode
+- Test-MyVSCodeInstall

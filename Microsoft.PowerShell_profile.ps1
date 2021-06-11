@@ -7,6 +7,8 @@ if ([Environment]::GetCommandLineArgs().Count -gt 1) { exit }
 #voice
 $VoiceWelcomeMessage = $true
 
+$DefaultVoiceProfile = 'Female'
+
 $global:myPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
 $global:MyMDTSimulatorPath = 'C:\MDTSimulator'
@@ -32,17 +34,20 @@ Function Set-MyAzureEnvironment{
         [ValidateSet('TenantID','SubscriptionName','SubscriptionID','ResourceGroup')]
         [string]$Output,
 
-        [switch]$Force
+        [switch]$Force,
+
+        [boolean]$OutVoice = $VoiceWelcomeMessage
     )
     ## Get the name of this function
     [string]${CmdletName} = $MyInvocation.MyCommand
     #build log name
     [string]$FileName = 'Profile_' + ${CmdletName} + '_' + (get-date -Format MM-dd-yyyy) + '.log'
     Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
-    
+
     #if parameter force is set, always show selection
     if ($Force -or ($null -eq $global:myEnv)) {
-        $global:myEnv = Get-ParameterOption -Command ${CmdletName} -Parameter myenv | Out-GridView -PassThru -Title "Select an Environment"
+        If($OutVoice){Out-MyVoice "You must select an Azure Environment"}
+        $global:myEnv = Get-ParameterOption -Command ${CmdletName} -Parameter myenv | Out-GridView -Title "Select an Environment" -PassThru
     }
     Elseif($PSBoundParameters.ContainsKey('MyEnv')){
         $global:myEnv = $MyEnv
@@ -70,14 +75,14 @@ Function Set-MyAzureEnvironment{
         'SubscriptionName' {$global:mySubscriptionName = $mySubscriptionName }
         'SubscriptionID' {$global:mySubscriptionID = $mySubscriptionID}
         'ResourceGroup' {$global:myResourceGroup = $myResourceGroup}
-        
+
         default {
             $global:myTenantID = $myTenantID
             $global:mySubscriptionName = $mySubscriptionName
             $global:mySubscriptionID = $mySubscriptionID
             $global:myResourceGroup = $myResourceGroup
         }
-        
+
     }
     $global:myEnv = $MyEnv
     Stop-Transcript | Out-Null
@@ -116,7 +121,7 @@ Function Test-IsISE {
 #endregion
 
 #region FUNCTION: Check if running in Visual Studio Code
-Function Test-VSCode{
+Function Test-MyVSCode{
   if($env:TERM_PROGRAM -eq 'vscode') {
       return $true;
   }
@@ -126,7 +131,7 @@ Function Test-VSCode{
 }
 #endregion
 
-Function Test-VSCodeInstall{
+Function Test-MyVSCodeInstall{
     $Paths = (Get-Item env:Path).Value.split(';')
     If($paths -like '*Microsoft VS Code*'){
         return $true
@@ -136,11 +141,11 @@ Function Test-VSCodeInstall{
 }
 
 
-Function Start-VSCodeInstall {
+Function Start-MyVSCodeInstall {
     $uri = 'https://raw.githubusercontent.com/PowerShell/vscode-powershell/master/scripts/Install-VSCode.ps1'
     #Invoke-Command -ScriptBlock ([scriptblock]::Create((Invoke-WebRequest $uri -UseBasicParsing).Content))
 
-    If(-Not(Test-VSCodeInstall) ){
+    If(-Not(Test-MyVSCodeInstall) ){
         $Code = (Invoke-WebRequest $uri -UseBasicParsing).Content
         $code | Out-File $env:temp\vsc.ps1 -Force
         Unblock-File $env:temp\vsc.ps1
@@ -202,7 +207,7 @@ public class Audio
 }
 '@
 
-Function Get-VolumeLevel{
+Function Get-MyVolumeLevel{
     $GetVol = ([audio]::Volume * 100)
 
     Try{
@@ -222,7 +227,7 @@ Function Get-VolumeLevel{
 }
 
 
-Function Set-VolumeLevel{
+Function Set-MyVolumeLevel{
     param(
         [parameter(Mandatory=$true)]
         [ValidateRange(1,100)]
@@ -248,7 +253,7 @@ Function Set-VolumeLevel{
 }
 
 
-Function Test-IsAdmin
+Function Test-MyIsAdmin
 {
 <#
 .SYNOPSIS
@@ -258,12 +263,12 @@ Function Test-IsAdmin
    Function used to detect if current user is an Administrator. Presents a menu if not an Administrator
 
 .NOTES
-    Name: Test-IsAdmin
+    Name: Test-MyIsAdmin
     Author: Boe Prox
     DateCreated: 30April2011
 
 .EXAMPLE
-    Test-IsAdmin
+    Test-MyIsAdmin
 
 
 Description
@@ -323,7 +328,7 @@ the [System.Management.Automation.PSCredential] object is returned by the functi
     }
 }
 
-Function Elevate-Process
+Function Start-MyElevatedProcess
 {
     param(
     [Parameter(Mandatory=$false)]
@@ -344,7 +349,7 @@ Function Elevate-Process
             #$admincheck = Get-Credential -Credential "$env:USERDNSDOMAIN\$AdminUser" -Message "Please enter your user name and password." -ErrorAction SilentlyContinue
         }
         Else{
-            $admincheck = Test-IsAdmin
+            $admincheck = Test-MyIsAdmin
         }
         If ($admincheck -is [System.Management.Automation.PSCredential]){
             $splattable['Credential'] = $admincheck
@@ -365,63 +370,64 @@ Function Elevate-Process
 }
 
 
-<#
-.SYNOPSIS
-Reads a message to the user.
 
-.DESCRIPTION
-Uses the default voice of the client to read a message
-to the user.
-
-.PARAMETER Message
-The string of text to read.
-
-.PARAMETER VoiceType
-Allows for the default choice to be changed using the
-default voices installed on Windows 10. Acceptable values are:
-US_Male
-US_Female
-
-.PARAMETER PassThru
-Passes the piped in object to the pipeline.
-
-.EXAMPLE
-Out-Voice "Script Complete"
-
-Reads back to the user "Script Complete"
-
-.EXAMPLE
-$CustomObject | Out-Voice -PassThru
-
-If the object has a property called "VoiceMessage" and is of
-data type [STRING], then the string is read.  If the object
-contains a "VoiceType" parameter that is valid, that
-voice will be used. The original object is then passed
-into the pipeline.
-
-.EXAMPLE
-Get-WmiObject Win32_Product |
-ForEach -process {Write-Output $_} -end{Out-Voice -VoiceMessage "Script Completed"}
-
-Recovers the product information from WMI and the notifies the
-user with the voice message "Script Completed" while also
-passing the results to the pipeline.
-
-.EXAMPLE
-Start-Job -ScriptBlock {Get-WmiObject WIn32_Product} -Name GetProducts
-While ((Get-job -Name GetProducts).State -ne "Completed")
+Function Out-MyVoice
 {
-    Start-sleep -Milliseconds 500
-}
-Out-Voice -VoiceMessage "Done"
+    <#
+    .SYNOPSIS
+    Reads a message to the user.
 
-Notifies the user when a background job has completed.
+    .DESCRIPTION
+    Uses the default voice of the client to read a message
+    to the user.
 
-.NOTES
-Tested on Windows 10
-#>
-Function Out-Voice
-{
+    .PARAMETER Message
+    The string of text to read.
+
+    .PARAMETER VoiceType
+        Allows for the default choice to be changed using the
+        default voices installed on Windows 10. Acceptable values are:
+        Male
+        Female
+
+    .PARAMETER PassThru
+    Passes the piped in object to the pipeline.
+
+    .EXAMPLE
+    Out-MyVoice "Script Complete"
+
+    Reads back to the user "Script Complete"
+
+    .EXAMPLE
+    $CustomObject | Out-MyVoice -PassThru
+
+    If the object has a property called "VoiceMessage" and is of
+    data type [STRING], then the string is read.  If the object
+    contains a "VoiceType" parameter that is valid, that
+    voice will be used. The original object is then passed
+    into the pipeline.
+
+    .EXAMPLE
+    Get-WmiObject Win32_Product |
+    ForEach -process {Write-Output $_} -end{Out-MyVoice -VoiceMessage "Script Completed"}
+
+    Recovers the product information from WMI and the notifies the
+    user with the voice message "Script Completed" while also
+    passing the results to the pipeline.
+
+    .EXAMPLE
+    Start-Job -ScriptBlock {Get-WmiObject WIn32_Product} -Name GetProducts
+    While ((Get-job -Name GetProducts).State -ne "Completed")
+    {
+        Start-sleep -Milliseconds 500
+    }
+    Out-MyVoice -VoiceMessage "Done"
+
+    Notifies the user when a background job has completed.
+
+    .NOTES
+    Tested on Windows 10
+    #>
     [cmdletBinding()]
     Param
     (
@@ -429,8 +435,8 @@ Function Out-Voice
                    ValueFromPipelineByPropertyName=$True)]
                    [String]$VoiceMessage,
         [parameter(ValueFromPipelineByPropertyName=$True)]
-        [ValidateSet("US_Male","US_Female")]
-                   [String]$VoiceType,
+        [ValidateSet("Male","Female")]
+                   [String]$VoiceType = $DefaultVoiceProfile,
                    [Switch]$PassThru,
         [parameter(ValueFromPipeline=$True)]
                    [PSObject]$InputObject
@@ -456,8 +462,8 @@ Function Out-Voice
             # The defualt voice will be used otherwise.
             Switch ($VoiceType)
             {
-                "US_Male" {$Voice.Voice = $V[0]}
-                "US_Female" {$Voice.Voice = $V[1]}
+                "Male" {$Voice.Voice = $V[0]}
+                "Female" {$Voice.Voice = $V[1]}
             }
         } # End: IF Statment.
     }
@@ -479,10 +485,10 @@ Function Out-Voice
             Write-Output $InputObject
         }
     } #End: PROCESS
-} # End: Out-Voice
+} # End: Out-MyVoice
 
 
-Function Open-File{
+Function Open-MyFile{
     param(
         [string]$filename,
         [ValidateSet('run','open')]
@@ -512,7 +518,7 @@ Function Open-File{
 
 
 
-Function Install-LatestModule {
+Function Install-MyLatestModule {
     [CmdletBinding(DefaultParameterSetName = 'NameParameterSet',
         HelpUri = 'https://go.microsoft.com/fwlink/?LinkID=398573',
         SupportsShouldProcess = $true)]
@@ -748,7 +754,9 @@ Function Connect-MyAzureEnvironment{
             Position = 2)]
         [string]$ResourceGroupName,
 
-        [switch]$ClearAll
+        [switch]$ClearAll,
+
+        [boolean]$OutVoice = $VoiceWelcomeMessage
     )
     Begin{
         ## Get the name of this function
@@ -814,6 +822,7 @@ Function Connect-MyAzureEnvironment{
                 }Else{
                     $AzAccount = Connect-AzAccount -ErrorAction Stop
                 }
+                If($OutVoice){Out-MyVoice "You must select an Azure Subscription"}
                 $AzSubscription += Get-AzSubscription -WarningAction SilentlyContinue | Out-GridView -PassThru -Title "Select a valid Azure Subscription" | Select-AzSubscription -WarningAction SilentlyContinue
                 Set-AzContext -Tenant $AzSubscription.Subscription.TenantId -Subscription $AzSubscription.Subscription.id | Out-Null
                 If($VerbosePreference){Write-Host ("Successfully connected to Azure!") -ForegroundColor Green}
@@ -841,7 +850,8 @@ Function Connect-MyAzureEnvironment{
 
             $MyRGs += Get-AzResourceGroup | Select -ExpandProperty ResourceGroupName
             If(($global:myResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:myResourceGroup)){
-                $global:myResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select -ExpandProperty ResourceGroupName
+                If($OutVoice){Out-MyVoice "You must select an Azure Resource Group"}
+                $global:myResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select an Azure Resource Group" | Select -ExpandProperty ResourceGroupName
                 #set the new context based on found RG
                 Set-AzDefault -ResourceGroupName $global:myResourceGroup -Force | Out-Null
             }
@@ -1432,7 +1442,7 @@ Function Set-MyJitAccess{
     }
 }
 
-Function Enable-JitPolicy{
+Function Enable-MyAzureJitPolicy{
     Param(
         [Parameter(Mandatory = $true,
             ValueFromPipeline=$True,
@@ -1531,7 +1541,9 @@ Function Start-MyAzureEnvironment{
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName
+        [string]$ResourceGroupName,
+
+        [boolean]$OutVoice = $VoiceWelcomeMessage
     )
     Begin
     {
@@ -1567,7 +1579,9 @@ Function Start-MyAzureEnvironment{
     Process
     {
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
-            Write-Host ("Please wait while collecting Azure VM with names [{0}]..." -f ($VMName -join ",")) -ForegroundColor Gray -NoNewline
+            $message = ("Please wait while collecting Azure VM with names [{0}]" -f ($VMName -join ","))
+            Write-Host ($message + '...') -ForegroundColor Gray -NoNewline
+            If($OutVoice){Out-MyVoice $message}
             #TEST $VM = $VMName
             Foreach($VM in $VMName)
             {
@@ -1575,7 +1589,9 @@ Function Start-MyAzureEnvironment{
             }
         }
         Else{
-            Write-Host ("Please wait while collecting all Azure VM's...") -ForegroundColor Gray -NoNewline
+            $message = ("Please wait while collecting all Azure VM's")
+            Write-Host ($message + '...') -ForegroundColor Gray -NoNewline
+            If($OutVoice){Out-MyVoice $message}
             $VMs = Get-MyAzureVM -ResourceGroupName $ResourceGroupName -NetworkDetails -NoStatus
         }
 
@@ -1657,7 +1673,7 @@ Function Convert-XMLtoPSObject {
     $Return
 }
 
-Function Get-RemoteDesktopData{
+Function Get-MyRemoteDesktopData{
     $Path = "$env:LOCALAPPDATA\Packages\Microsoft.MicrosoftRemoteDesktopPreview_8wekyb3d8bbwe\LocalState\RemoteDesktopData\LocalWorkspace\connections"
     If(Test-Path $Path -ErrorAction SilentlyContinue){
         $RDPConnFiles = Get-Childitem $Path -Filter *.model
@@ -1700,7 +1716,7 @@ Function Get-MyAzureUserName{
     Return $Name
 }
 
-Function Get-RandomAlphanumericString {
+Function Get-MyRandomAlphanumericString {
 	[CmdletBinding()]
 	Param (
         [int] $length = 8
@@ -1714,8 +1730,8 @@ Function Get-RandomAlphanumericString {
 }
 
 
-Function Generate-HyperVMSerialNumber{
-    "$(Get-RandomAlphanumericString -length 3)$(Get-random -Minimum 1000000 -Maximum 9999999)$(Get-RandomAlphanumericString -length 2)"
+Function Get-MyRandomSerialNumber{
+    "$(Get-MyRandomAlphanumericString -length 3)$(Get-random -Minimum 1000000 -Maximum 9999999)$(Get-MyRandomAlphanumericString -length 2)"
 
 }
 
@@ -1752,7 +1768,7 @@ Function Get-MyHyperVM{
 }
 
 
-Function Kill-MyHyperVM{
+Function Stop-MyHyperVM{
     Param(
         [Parameter(Mandatory = $true,
             ValueFromPipelineByPropertyName = $true,
@@ -1772,7 +1788,7 @@ Function Restart-MyHyperV{
     Get-Service vmms | Start-Service
 }
 
-Function Control-MyWindow {
+Function Set-MyWindowPosition {
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $true,
@@ -1830,7 +1846,7 @@ Function Control-MyWindow {
     }
 }
 
-Function Start-MDTSimulator{
+Function Start-MyMDTSimulator{
     [CmdletBinding()]
     Param(
         [Parameter(Mandatory = $False,
@@ -1885,7 +1901,7 @@ Function Start-MDTSimulator{
         ($TSStartupScript).replace("\\Server\deploymentshare",$DeploymentShare) | Set-Content "$env:temp\TSEnv.ps1" -Force
 
         #append the admin value to end of windows (used in VSCode)
-        If(Test-IsAdmin -PassThru){$AppendWindow = ' [Administrator]'}Else{$AppendWindow = $null}
+        If(Test-MyIsAdmin -PassThru){$AppendWindow = ' [Administrator]'}Else{$AppendWindow = $null}
 
         switch($Environment){
             'Powershell' {
@@ -1914,7 +1930,7 @@ Function Start-MDTSimulator{
                             $sleep = 30
                          }
             'VSCode'     {
-                            If(Test-VSCodeInstall){
+                            If(Test-MyVSCodeInstall){
                                 $ProcessPath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\code.exe"
                                 $ProcessArgument="$DeploymentShare $env:temp\TSEnv.ps1 $DeploymentShare\Script\PSDStart.ps1 --new-window"
 
@@ -1926,7 +1942,7 @@ Function Start-MDTSimulator{
                                 $Window = "TSEnv.ps1 - DEP-PSD$ - Visual Studio Code" + $AppendWindow
                                 $sleep = 30
                             }Else{
-                                Write-host "Visual Studio Code was not found; Unable to start MDT simulator with it.`nInstall at https://code.visualstudio.com/ or run command Start-VSCodeInstall" -BackgroundColor Red -ForegroundColor White
+                                Write-host "Visual Studio Code was not found; Unable to start MDT simulator with it.`nInstall at https://code.visualstudio.com/ or run command Start-MyVSCodeInstall" -BackgroundColor Red -ForegroundColor White
                             }
                          }
         }
@@ -1938,11 +1954,11 @@ Function Start-MDTSimulator{
 
         $MDTTerminalProcess = Get-Process | Where {$_.MainWindowTitle -eq $Window}
         If($MDTTerminalProcess){
-            Control-MyWindow $MDTTerminalProcess -Position Restore -Show
+            Set-MyWindowPosition $MDTTerminalProcess -Position Restore -Show
             Write-Host ('...Simulator terminal already started in {0}' -f $Environment) -ForegroundColor Green
         }
         Else{
-            If( ($Environment -eq 'VSCode') -and -Not(Test-VSCodeInstall) ){
+            If( ($Environment -eq 'VSCode') -and -Not(Test-MyVSCodeInstall) ){
                 Return $null
             }
 
@@ -2031,14 +2047,14 @@ Function Show-MyCommands
 # MAIN
 #=======================================================
 #exit process of profile script if using vscode
-if (Test-VSCode) { exit }
+if (Test-MyVSCode) { exit }
 
 $Hour = (Get-Date).Hour
 $UserName = Get-MyAzureUserName -firstname
 If($VoiceWelcomeMessage){
-    If ($Hour -lt 10) {("Good Morning, {0}" -f $UserName) | Out-Voice -VoiceType US_Female -PassThru}
-    ElseIf ($Hour -gt 16) {("Good Evening, {0}" -f $UserName) | Out-Voice -VoiceType US_Female -PassThru}
-    Else {("Good Afternoon, {0}" -f $UserName)| Out-Voice -VoiceType US_Female -PassThru}
+    If ($Hour -lt 10) {("Good Morning, {0}" -f $UserName) | Out-MyVoice -PassThru}
+    ElseIf ($Hour -gt 16) {("Good Evening, {0}" -f $UserName) | Out-MyVoice -PassThru}
+    Else {("Good Afternoon, {0}" -f $UserName)| Out-MyVoice -PassThru}
 }
 Else{
     If ($Hour -lt 10) {Write-Host ("Good Morning, {0}" -f $UserName)}
@@ -2048,16 +2064,16 @@ Else{
 Write-Host 'Your running Powershell version: ' -ForegroundColor Gray -NoNewline
 Write-Host  $PsVersionTable.PSVersion -ForegroundColor Cyan
 '-----------------------------------------------'
-If($VoiceWelcomeMessage){"Please wait while I check for installed modules" | Out-Voice -VoiceType US_Female}
-Install-LatestModule -Name $Checkmodules -Frequency Daily
+If($VoiceWelcomeMessage){"Please wait while I check for installed modules" | Out-MyVoice}
+Install-MyLatestModule -Name $Checkmodules -Frequency Daily
 
 Show-MyCommands
 
 #create a vsc alias like ise
-If(Test-VSCodeInstall){
+If(Test-MyVSCodeInstall){
     Set-Alias vsc -Value code
 }Else{
-    Write-host "Visual Studio Code was not found; install at https://code.visualstudio.com/ or run command Start-VSCodeInstall" -BackgroundColor Red -ForegroundColor White
+    Write-host "Visual Studio Code was not found; install at https://code.visualstudio.com/ or run command Start-MyVSCodeInstall" -BackgroundColor Red -ForegroundColor White
 }
 
-#Open-File -filename "$env:USERPROFILE\Downloads\CA01.rdp" -method run
+#Open-MyFile -filename "$env:USERPROFILE\Downloads\CA01.rdp" -method run
