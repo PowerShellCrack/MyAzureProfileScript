@@ -1,14 +1,20 @@
 # MyAzureProfileScript
 
-A Profile script for your admin system to simply manage VMs in multiple (or singular) Azure tenants. I have multiple tenants and need to start them up based on what I am testing.
+A Profile script for your admin system to manage VMs in multiple (or singular) Azure tenants. I have multiple tenants and need to start them up based on what I am testing.
 
 ## Customize your resources
 
 There are some areas that need to be modified. The very first function, __Set-MyAzureEnvironment__, is where the Azure tenants are configured; add the tenant info to each site. Review Lines 64-75
 
 ```powershell
-#My Azure Site B lab
-'SiteB' {
+#My Azure lab
+'Resource Tenant' {
+            $myTenantID = '<your tenant ID>'
+            $mySubscriptionName = '<your subscription name>'
+            $mySubscriptionID = '<your subscription ID>'
+            $myResourceGroup = '<your resource group>'
+        }
+'Services Tenant' {
             $myTenantID = '<your tenant ID>'
             $mySubscriptionName = '<your subscription name>'
             $mySubscriptionID = '<your subscription ID>'
@@ -43,7 +49,7 @@ $Checkmodules = @('Az','Az.Security','Azure','AzureAD')
 Copy this script to your __C:\Users\\\<userprofile>\Documents\WindowsPowerShell__ folder and relaunch Windows PowerShell.
 > __Keep in Mind__: If you already have a profile script, make sure you make a backup or integrate your code into this one.
 
-Since the script would be loaded in your profile, it would be called by anything that runs in with your context including corporate scripts that are managing your device. To fix this, I've added a check to see if the script is called directly and if it is, it exits the script
+ I've added a check to see if the script is called directly and if it is, it exits the script; this resolves issues with services calling powershell or VS code calling the script  each time its launched
 
 The only command you will need run is:
 
@@ -55,13 +61,28 @@ If you have not specified the correct Azure Tenant info, You will also be presen
 
 Also the first time you connect to Azure using PowerShell, an identity file is creating in your profile. Being a nerd, the script parses that file to look for the authenticated username's first name and output a voice such as: "Good morning Dick, Please wait while I check for installed modules..."
 
-However you can disable it if you set line 14 to
+However you can disable it if you set line 13 to
 
 ```powershell
 $VoiceWelcomeMessage = $false
+
+$DefaultVoiceProfile = 'Female'
+```
+there are othere global settings that can be changes for more automation and features (lines 17-23)
+
+```powershell
+$global:MyMDTSimulatorPath = 'E:\Data\MDTSimulator'
+
+$global:MyLabTag = 'StartupOrder'
+
+$global:MyLabTenant = 'Resource Tenant'
+
+$global:MyDeploymentShare = '\\192.168.1.10\DEP-PSD$'
 ```
 
-I plan on making more voice commands within the functions; yes I know what your thinking...NERD ALERT!!
+
+## Future changes
+- I plan on making more voice commands within the functions; yes I know what your thinking...NERD ALERT!!
 
 ## Screenshots
 
