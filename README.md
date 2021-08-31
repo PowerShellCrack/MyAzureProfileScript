@@ -7,19 +7,20 @@ A Profile script for your admin system to manage VMs in multiple (or singular) A
 There are some areas that need to be modified. The very first function, __Set-MyAzureEnvironment__, is where the Azure tenants are configured; add the tenant info to each site. Review Lines 64-75
 
 ```powershell
-#My Azure lab
+#My Azure Site A lab
 'Resource Tenant' {
-            $myTenantID = '<your tenant ID>'
-            $mySubscriptionName = '<your subscription name>'
-            $mySubscriptionID = '<your subscription ID>'
-            $myResourceGroup = '<your resource group>'
-        }
+        $myTenantID = '<your tenant ID>'
+        $mySubscriptionName = '<your subscription name>'
+        $mySubscriptionID = '<your subscription ID>'
+        $myResourceGroup = '<your resource group>'
+    }
+#My Azure Site B lab
 'Services Tenant' {
-            $myTenantID = '<your tenant ID>'
-            $mySubscriptionName = '<your subscription name>'
-            $mySubscriptionID = '<your subscription ID>'
-            $myResourceGroup = '<your resource group>'
-        }
+        $myTenantID = '<your tenant ID>'
+        $mySubscriptionName = '<your subscription name>'
+        $mySubscriptionID = '<your subscription ID>'
+        $myResourceGroup = '<your resource group>'
+    }
 ```
 
 Make sure to update _[ValidateSet()]_ in the param section (line 25) as well if you add new or change environments names.
@@ -61,25 +62,24 @@ If you have not specified the correct Azure Tenant info, You will also be presen
 
 Also the first time you connect to Azure using PowerShell, an identity file is creating in your profile. Being a nerd, the script parses that file to look for the authenticated username's first name and output a voice such as: "Good morning Dick, Please wait while I check for installed modules..."
 
-However you can disable it if you set line 13 to
+However you can disable it if you set line 14 to
 
 ```powershell
 $VoiceWelcomeMessage = $false
 
 $DefaultVoiceProfile = 'Female'
 ```
-there are othere global settings that can be changes for more automation and features (lines 17-23)
+there are othere global settings that can be changes for more automation and features (lines 18-24)
 
 ```powershell
-$global:MyMDTSimulatorPath = 'E:\Data\MDTSimulator'
-
 $global:MyLabTag = 'StartupOrder'
 
 $global:MyLabTenant = 'Resource Tenant'
 
-$global:MyDeploymentShare = '\\192.168.1.10\DEP-PSD$'
-```
+$global:MyMDTSimulatorPath = 'C:\MDTSimulator'
 
+$global:MyDeploymentShare = "\\$env:ComputerName\Deploymentshare$"
+```
 
 ## Future changes
 - I plan on making more voice commands within the functions; yes I know what your thinking...NERD ALERT!!
