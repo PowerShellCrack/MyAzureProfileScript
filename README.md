@@ -19,7 +19,7 @@ There are some areas that need to be modified. The very first function, __Set-My
 Make sure to update _[ValidateSet()]_ in the param section (line 25) as well if you add new or change environments names.
 
 ```powershell
-[ValidateSet('SiteA','SiteB')]
+[ValidateSet('Resource Tenant','Services Tenant')]
 ```
 
 I have the script installs and updates the required modules. It currently monitors these modules:
