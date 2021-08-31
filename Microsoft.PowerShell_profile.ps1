@@ -15,8 +15,6 @@ $VoiceWelcomeMessage = $true
 
 $DefaultVoiceProfile = 'Female'
 
-$global:MyPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
-
 $global:MyLabTag = 'StartupOrder'
 
 $global:MyLabTenant = 'Resource Tenant'
@@ -24,6 +22,8 @@ $global:MyLabTenant = 'Resource Tenant'
 $global:MyMDTSimulatorPath = 'C:\MDTSimulator'
 
 $global:MyDeploymentShare = "\\$env:ComputerName\Deploymentshare$"
+
+$global:MyPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
 #set this to what you want
 $Checkmodules = @('Az','Az.Security','Azure','AzureAD')
