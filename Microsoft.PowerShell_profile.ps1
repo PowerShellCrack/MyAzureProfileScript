@@ -1,4 +1,3 @@
-
 #=======================================================
 # VARIABLES
 #=======================================================
@@ -18,10 +17,6 @@ $DefaultVoiceProfile = 'Female'
 $global:MyLabTag = 'StartupOrder'
 
 $global:MyLabTenant = 'Resource Tenant'
-
-$global:MyMDTSimulatorPath = 'C:\MDTSimulator'
-
-$global:MyDeploymentShare = "\\$env:ComputerName\Deploymentshare$"
 
 $global:MyPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
@@ -66,14 +61,21 @@ Function Set-MyAzureEnvironment{
                     $mySubscriptionName = '<your subscription name>'
                     $mySubscriptionID = '<your subscription ID>'
                     $myResourceGroup = '<your resource group>'
-                }
+        }
         #My Azure Site B lab
         'Services Tenant' {
                     $myTenantID = '<your tenant ID>'
                     $mySubscriptionName = '<your subscription name>'
                     $mySubscriptionID = '<your subscription ID>'
                     $myResourceGroup = '<your resource group>'
-                }
+        }
+        #Default to Site A lab
+        default {
+            $myTenantID = '<your tenant ID>'
+            $mySubscriptionName = '<your subscription name>'
+            $mySubscriptionID = '<your subscription ID>'
+            $myResourceGroup = '<your resource group>'
+    }
     }
 
     Switch($Output){
@@ -113,19 +115,6 @@ function Get-ParameterOption {
 #endregion
 
 
-#region FUNCTION: Check if running in ISE
-Function Test-IsISE {
-    # try...catch accounts for:
-    # Set-StrictMode -Version latest
-    try {
-        return ($null -ne $psISE);
-    }
-    catch {
-        return $false;
-    }
-}
-#endregion
-
 #region FUNCTION: Check if running in Visual Studio Code
 Function Test-MyVSCode{
     if($env:TERM_PROGRAM -eq 'vscode') {
@@ -137,49 +126,6 @@ Function Test-MyVSCode{
 }
 #endregion
 
-#region FUNCTION: Find script path for either ISE or console
-Function Get-ScriptPath {
-    <#
-        .SYNOPSIS
-            Finds the current script path even in ISE or VSC
-        .LINK
-            Test-MyVSCode
-            Test-IsISE
-    #>
-    param(
-        [switch]$Parent
-    )
-
-    Begin{}
-    Process{
-        if ($PSScriptRoot -eq "")
-        {
-            if (Test-IsISE)
-            {
-                $ScriptPath = $psISE.CurrentFile.FullPath
-            }
-            elseif(Test-MyVSCode){
-                $context = $psEditor.GetEditorContext()
-                $ScriptPath = $context.CurrentFile.Path
-            }Else{
-                $ScriptPath = (Get-location).Path
-            }
-        }
-        else
-        {
-            $ScriptPath = $PSCommandPath
-        }
-    }
-    End{
-
-        If($Parent){
-            Split-Path $ScriptPath -Parent
-        }Else{
-            $ScriptPath
-        }
-    }
-}
-#endregion
 
 Function Test-MyVSCodeInstall{
     $Paths = (Get-Item env:Path).Value.split(';')
@@ -302,126 +248,6 @@ Function Set-MyVolumeLevel{
     }
 }
 
-
-Function Test-MyIsAdmin
-{
-<#
-.SYNOPSIS
-   Function used to detect if current user is an Administrator.
-
-.DESCRIPTION
-   Function used to detect if current user is an Administrator. Presents a menu if not an Administrator
-
-.NOTES
-    Name: Test-MyIsAdmin
-    Author: Boe Prox
-    DateCreated: 30April2011
-
-.EXAMPLE
-    Test-MyIsAdmin
-
-
-Description
------------
-Command will check the current user to see if an Administrator. If not, a menu is presented to the user to either
-continue as the current user context or enter alternate credentials to use. If alternate credentials are used, then
-the [System.Management.Automation.PSCredential] object is returned by the function.
-#>
-    [cmdletbinding()]
-    Param([switch]$PassThru)
-
-    Write-Verbose "Checking to see if current user context is Administrator"
-    If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
-    {
-        Write-Warning "You are not currently running this under an Administrator account! `nThere is potential that this command could fail if not running under an Administrator account."
-        Write-Verbose "Presenting option for user to pick whether to continue as current user or use alternate credentials"
-        If($PassThru){return $false}
-
-        #Determine Values for Choice
-        $choice = [System.Management.Automation.Host.ChoiceDescription[]] @("Use &Alternate Credentials","&Continue with current Credentials")
-
-        #Determine Default Selection
-        [int]$default = 0
-
-        #Present choice option to user
-        $userchoice = $host.ui.PromptforChoice("Warning","Please select to use Alternate Credentials or current credentials to run command",$choice,$default)
-
-        Write-Debug "Selection: $userchoice"
-
-        #Determine action to take
-        Switch ($Userchoice)
-        {
-            0
-            {
-                #Prompt for alternate credentials
-                Write-Verbose "Prompting for Alternate Credentials"
-                #$Credential = Get-Credential
-		$Credential = $host.ui.PromptForCredential("Need credentials", "Please enter your user name and password.", "", "NetBiosUserName")
-		Write-Output $Credential
-            }
-            1
-            {
-                #Continue using current credentials
-                Write-Verbose "Using current credentials"
-                $Credential = New-Object psobject -Property @{
-    		    UserName = "$env:USERDNSDOMAIN\$env:USERNAME"
-		}
-		Write-Output $Credential
-            }
-        }
-
-    }
-    Else
-    {
-        Write-Verbose "Passed Administrator check"
-        If($PassThru){return $true}
-    }
-}
-
-
-Function Start-MyElevatedProcess
-{
-    param(
-    [Parameter(Mandatory=$false)]
-    [string]$Process = "PowerShell.exe",
-    [Parameter(Mandatory=$false)]
-    [string]$AdminAccount
-    )
-    Begin{
-        $splattable = @{}
-        $splattable['FilePath'] = "PowerShell.exe"
-        $splattable['WorkingDirectory'] = "$PSHOME"
-        $splattable['ArgumentList'] = "Start-Process $Process -Verb runAs"
-        $splattable['NoNewWindow'] = $true
-        $splattable['PassThru'] = $true
-        If ($AdminAccount){
-            Write-host "Prompting for your $env:USERDNSDOMAIN adm password..."
-            $admincheck = $host.ui.PromptForCredential("Need credentials", "Please enter your user name and password.", "$AdminAccount", "NetBiosUserName")
-            #$admincheck = Get-Credential -Credential "$env:USERDNSDOMAIN\$AdminUser" -Message "Please enter your user name and password." -ErrorAction SilentlyContinue
-        }
-        Else{
-            $admincheck = Test-MyIsAdmin
-        }
-        If ($admincheck -is [System.Management.Automation.PSCredential]){
-            $splattable['Credential'] = $admincheck
-        }
-	If(!$admincheck){write-host "Credentials were invalid, exiting..." -ForegroundColor red;break}
-    }
-    Process{
-	    Write-host "Attempting to launch '$Process' as '$($splattable.Credential.UserName)' with elevated administrator privledges. Please wait..." -ForegroundColor Cyan
-	    Try{
-            Start-Process @splattable -ErrorAction Stop
-        }
-        Catch {
-            $ErrorMessage = $_.Exception.Message
-            $FailedItem = $_.Exception.ItemName
-            write-host "Failed to launch $FailedItem. The error message was $ErrorMessage" -ForegroundColor red
-        }
-    }
-}
-
-
-
 Function Out-MyVoice
 {
     <#
@@ -539,36 +365,6 @@ Function Out-MyVoice
 } # End: Out-MyVoice
 
 
-Function Open-MyFile{
-    param(
-        [string]$filename,
-        [ValidateSet('run','open')]
-        [string]$method,
-        [switch]$wait
-    )
-    $ext = [System.IO.Path]::GetExtension($filename)
-
-    switch($Method){
-        "run" {
-            switch($ext){
-             '.ps1' {Start-Process powershell.exe -ArgumentList $filename -PassThru | Out-Null}
-             '.rdp' {Start-Process "$env:windir\system32\mstsc.exe" -ArgumentList $filename -PassThru | Out-Null}
-             '.exe' {Start-Process $filename -PassThru | Out-Null}
-            }
-        }
-
-        "open" {
-            switch($ext){
-             '.ps1' {Start-Process powershell_ise.exe -ArgumentList $filename -PassThru | Out-Null}
-             '.rdp' {Start-Process "$env:windir\system32\mstsc.exe" -ArgumentList $filename -PassThru | Out-Null}
-             '.exe' {Start-Process $filename -PassThru | Out-Null}
-            }
-        }
-    }
-}
-
-
-
 Function Install-MyLatestModule {
     [CmdletBinding(DefaultParameterSetName = 'NameParameterSet',
         HelpUri = 'https://go.microsoft.com/fwlink/?LinkID=398573',
@@ -654,7 +450,7 @@ Function Install-MyLatestModule {
         #TEST $item = $Checkmodules[0]
         #TEST $item = 'Az'
 
-        
+
 
         foreach ($item in $name)
         {
@@ -814,6 +610,7 @@ Function Connect-MyAzureEnvironment{
         [string]$SubscriptionID ,
 
         [Parameter(Mandatory = $false,
+        ValueFromPipelineByPropertyName = $true,
             Position = 2)]
         [string]$ResourceGroupName,
 
@@ -832,7 +629,7 @@ Function Connect-MyAzureEnvironment{
         if (-not $PSBoundParameters.ContainsKey('Verbose')) {
             $VerbosePreference = $PSCmdlet.SessionState.PSVariable.GetValue('VerbosePreference')
         }
-        
+
         #grab global variables
         Set-MyAzureEnvironment
 
@@ -867,7 +664,7 @@ Function Connect-MyAzureEnvironment{
                 #if defualt is not set, attempt to set it
                 If($null -eq (Get-AzDefault) )
                 {
-                    $DefaultRG = Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force  
+                    $DefaultRG = Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force
                 }Else{
                     $DefaultRG = Get-AzDefault -ErrorAction Stop
                 }
@@ -896,7 +693,7 @@ Function Connect-MyAzureEnvironment{
                 $AzSubscription += Get-AzSubscription -WarningAction SilentlyContinue | Out-GridView -PassThru -Title "Select a valid Azure Subscription" | Select-AzSubscription -WarningAction SilentlyContinue
                 Set-AzContext -Tenant $AzSubscription.Subscription.TenantId -Subscription $AzSubscription.Subscription.id | Out-Null
                 If($VerbosePreference){Write-Host ("Successfully connected to Azure!") -ForegroundColor Green}
-                
+
                 $MyRGs += Get-AzResourceGroup | Select -ExpandProperty ResourceGroupName
                 <#
                 If(($global:MyResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyResourceGroup)){
@@ -930,7 +727,7 @@ Function Connect-MyAzureEnvironment{
                 Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force | Out-Null
             }
 
-            #set the global values if connection 
+            #set the global values if connection
             If($AzSubscription){
                 $global:MySubscriptionName = $AzSubscription.Subscription.Name;
                 $global:MySubscriptionID = $AzSubscription.Subscription.Id;
@@ -961,7 +758,6 @@ Function Get-MyAzureNSGRules{
         [string[]]$VMname,
 
         [Parameter(Mandatory = $false,
-            ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
         [string]$ResourceGroupName
@@ -1093,11 +889,22 @@ Function Get-MyAzureVM{
             ValueFromPipelineByPropertyName = $true,
             Position = 0,
             ParameterSetName = 'VMParameterSet')]
+        [ArgumentCompleter( {
+            param ( $commandName,
+                    $parameterName,
+                    $wordToComplete,
+                    $commandAst,
+                    $fakeBoundParameters )
+
+            $Global:MyAzVMs.VMname | Where-Object {
+                $_ -like "$wordToComplete*"
+            }
+
+        } )]
         [Alias("VM")]
-        [string[]]$VMname,
+        [string]$VMname,
 
         [Parameter(Mandatory = $false,
-            ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
         [string]$ResourceGroupName = $global:MyResourceGroup,
@@ -1237,10 +1044,9 @@ Function Get-MyAzureVM{
 }
 
 
-
 Function Start-MyAzureVM{
-# Microsoft - Compute Resources
-#-----------------------------
+    # Microsoft - Compute Resources
+    #-----------------------------
    [CmdletBinding(DefaultParameterSetName = 'ListParameterSet',
         HelpUri = 'https://go.microsoft.com/fwlink/?LinkID=398573',
         SupportsShouldProcess = $true)]
@@ -1250,11 +1056,22 @@ Function Start-MyAzureVM{
             ValueFromPipelineByPropertyName = $true,
             Position = 0,
             ParameterSetName = 'VMParameterSet')]
+        [ArgumentCompleter( {
+            param ( $commandName,
+                    $parameterName,
+                    $wordToComplete,
+                    $commandAst,
+                    $fakeBoundParameters )
+
+            $Global:MyAzVMs.VMname | Where-Object {
+                $_ -like "$wordToComplete*"
+            }
+
+        } )]
         [Alias("VM")]
-        [string[]]$VMName,
+        [string]$VMname,
 
         [Parameter(Mandatory = $False,
-            ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
         [string]$ResourceGroupName = $global:MyResourceGroup,
@@ -1298,7 +1115,7 @@ Function Start-MyAzureVM{
         $VMs = @()
     }
     Process{
-        
+
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
              #TEST $VM = $VMname
             Foreach($VM in $VMName)
@@ -1333,7 +1150,7 @@ Function Start-MyAzureVM{
                         Continue
                         #do not add vm to list
                         #$startupValue = $vm.Tags['StartupOrder']
-                    } 
+                    }
                     Else
                     {
                         If($VerbosePreference){write-host ('Found {0} tag for {1}; value is: {2}' -f $OrderTag,$vm.VMName,$vm.Tags[$OrderTag])}
@@ -1343,7 +1160,7 @@ Function Start-MyAzureVM{
                     #$taggedVMs.Add($vm.name,$startupValue)
                 }
 
-                
+
                 #Count must be more that 0 to continue
                 If($taggedVMs.count -gt 0)
                 {
@@ -1378,9 +1195,9 @@ Function Start-MyAzureVM{
                         {
                             #Grab resource id from VM
                             $VMResourceID = $VMs | Where VMName -eq $tobeStarted | Select -ExpandProperty ID
-        
+
                             Write-Host ("  Attempting to start VM in order: {0}" -f $tobeStarted)
-                            Start-AzVM -Id $VMResourceID -asJob | Out-Null
+                            Start-AzVM -Id $VMResourceID -ResourceGroupName $ResourceGroupName -asJob | Out-Null
                             #Start-AzVM -id $VMResourceID -AsJob
                         }
                         Else{
@@ -1395,14 +1212,14 @@ Function Start-MyAzureVM{
                 Else{
                     Write-Host ("No running VM's where tagged to start") -ForegroundColor Yellow
                 }
-                
+
             }
             Else{
                 #start all deallocated VM's
                 foreach ($VM in $VMs)
                 {
                     If($ShowStatus){write-host ("Attempting to start VM: {0}" -f $VM.VMName)}
-                    Start-AzVM -Name $VM.VMName -asJob | Out-Null
+                    Start-AzVM -Name $VM.VMName -ResourceGroupName $ResourceGroupName -asJob | Out-Null
                 }
             }
         }
@@ -1417,13 +1234,14 @@ Function Start-MyAzureVM{
         Else{
             $global:MyAzVMs = Get-MyAzureVM -NetworkDetails -NoStatus
         }
-            
+
         If($ShowStatus){
             $global:MyAzVMs | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
         }
         Stop-Transcript | Out-Null
     }
 }
+
 
 Function Extract-MaxDuration ([string]$InStr) {
     $Out = $InStr -replace ("[^\d]")
@@ -1445,11 +1263,26 @@ Function Set-MyAzureJitPolicy{
             ValueFromPipelineByPropertyName = $true,
             Position = 0,
             ParameterSetName = 'VMParameterSet')]
+        [ArgumentCompleter( {
+            param ( $commandName,
+                    $parameterName,
+                    $wordToComplete,
+                    $commandAst,
+                    $fakeBoundParameters )
+
+            $RemoteVMs = @()
+            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select -ExpandProperty PublicDNS
+            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select -ExpandProperty PublicIP
+
+            $RemoteVMs | Where-Object {
+                $_ -like "$wordToComplete*"
+            }
+
+        } )]
         [Alias("VM")]
-        [string[]]$VMName,
+        [string]$VMname,
 
         [Parameter(Mandatory = $False,
-            ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
         [string]$ResourceGroupName = $global:MyResourceGroup,
@@ -1590,7 +1423,7 @@ Function Set-MyAzureJitPolicy{
         Else{
             $global:MyAzVMs = Get-MyAzureVM -NetworkDetails
         }
-        
+
         If($ShowStatus){
             $global:MyAzVMs | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
         }
@@ -1598,7 +1431,6 @@ Function Set-MyAzureJitPolicy{
 
     }
 }
-
 Function Enable-MyAzureJitPolicy{
     Param(
         [Parameter(Mandatory = $true,
@@ -1610,7 +1442,6 @@ Function Enable-MyAzureJitPolicy{
         [string[]]$VMName,
 
         [Parameter(Mandatory = $False,
-            ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
         [string]$ResourceGroupName = $global:MyResourceGroup
@@ -1682,7 +1513,7 @@ Function Enable-MyAzureJitPolicy{
 Function Start-MyLabEnvironment{
     ## A Simple one line function to do it all
     Write-host ("Preparing Lab environment...") -ForegroundColor Yellow
-    
+
     Set-MyAzureEnvironment -MyEnv $global:MyLabTenant
 
 
@@ -1726,7 +1557,6 @@ Function Start-MyLabEnvironment{
 Function Start-MyAzureEnvironment{
     [CmdletBinding()]
     Param(
-
         [Parameter(Mandatory = $false,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
@@ -1802,7 +1632,7 @@ Function Start-MyAzureEnvironment{
 
                     If($VM.State -ne 'Running'){
                         Write-host ("starting") -ForegroundColor Green
-                    
+
                         #If($VerbosePreference -eq 'Continue'){Write-Host "Command: Start-MyAzureVM -VMName $($VM.VMName) -NoStatus" -ForegroundColor Yellow}
                         $vmstate = Start-MyAzureVM -VMName $VM.VMName -NoStatus
                     }Else{
@@ -2043,7 +1873,7 @@ Function Start-MyHyperVM{
         $VMs = @()
     }
     Process{
-        
+
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
              #TEST $VM = $VMname
             Foreach($VM in $VMName)
@@ -2067,7 +1897,7 @@ Function Start-MyHyperVM{
             If( $PSBoundParameters.ContainsKey('OrderTag') ){
                 # Get the StartupOrder tag, if missing set to be run last (10)
                 $taggedVMs = @{}
-                
+
                 #TEST $OrderTag = 'StartupOrder'
                 #TEST $VMs | Select name,notes
                 #TEST $vm = $VMs[1]
@@ -2080,7 +1910,7 @@ Function Start-MyHyperVM{
                         Continue
                         #do not add vm to list
                         #$startupValue = $vm.Tags['StartupOrder']
-                    } 
+                    }
                     Else
                     {
                         If($VerbosePreference){write-host ('Found {0} tag for {1}; value is: {2}' -f $OrderTag,$vm.Name,$vm.Tags[$OrderTag])}
@@ -2090,7 +1920,7 @@ Function Start-MyHyperVM{
                     #$taggedVMs.Add($vm.name,$startupValue)
                 }
 
-                
+
                 #Count must be more that 0 to continue
                 If($taggedVMs.count -gt 0)
                 {
@@ -2125,7 +1955,7 @@ Function Start-MyHyperVM{
                         {
                             Write-Host ("  Attempting to start VM in order: {0}" -f $tobeStarted)
                             Start-VM -Name $tobeStarted -asJob | Out-Null
-  
+
                         }
                         Else{
                             Write-Host ("  No VM found with {0}: {1}" -f $OrderTag,$tagOrderNum)
@@ -2139,7 +1969,6 @@ Function Start-MyHyperVM{
                 Else{
                     Write-Host ("No running VM's where tagged to start") -ForegroundColor Yellow
                 }
-                
             }
             Else{
                 #start all deallocated VM's
@@ -2161,7 +1990,6 @@ Function Start-MyHyperVM{
         Else{
             $global:MyVMs = Get-MyHyperVM -NetworkDetails | Where {$_.State -eq 'Running'}
         }
-            
         If($ShowStatus){
             $global:MyVMs | Select Name,LocalIP,State | Format-Table
         }
@@ -2257,7 +2085,7 @@ Function Get-MyHyperVM{
 
                 $vmwp | %{
                     #Try{
-                        $Process = $_ | Where {$_.CommandLine.split(" ")[1].Trim() -eq $VM.id.guid.ToUpper()}                        
+                        $Process = $_ | Where {$_.CommandLine.split(" ")[1].Trim() -eq $VM.id.guid.ToUpper()}
                     #}Catch{}
                 }
 
@@ -2265,10 +2093,10 @@ Function Get-MyHyperVM{
                 $Octet = '(?:0?0?[0-9]|0?[1-9][0-9]|1[0-9]{2}|2[0-5][0-5]|2[0-4][0-9])'
                 [regex]$IPv4Regex = "^(?:$Octet\.){3}$Octet$"
                 $IPv4Addresses = [regex]::Matches($VM.NetworkAdapters.IpAddresses,$IPv4Regex).Value -join ','
-                
+
                 #grab tags in notes
                 $VMTags = @{}
-                $VM.Notes -split '\n' | % { $s = $_ -split ':'; $VMTags += @{$s[0].Trim() =  $s[1].Trim()}} 
+                $VM.Notes -split '\n' | % { $s = $_ -split ':'; $VMTags += @{$s[0].Trim() =  $s[1].Trim()}}
 
                 $info = "" | Select ProcessID,Id,Name,LocalIP,State,Tags
                 $info.ProcessID = $Process.ProcessID
@@ -2369,147 +2197,6 @@ Function Set-MyWindowPosition {
     }
 }
 
-Function Start-MyMDTSimulator{
-    [CmdletBinding()]
-    Param(
-        [Parameter(Mandatory = $False,
-            Position = 0)]
-        [string]$MDTSimulatorPath = $global:MyMDTSimulatorPath,
-
-        [parameter(Mandatory=$false)]
-        [ValidateSet('MDT','PSD')]
-        [string]$Mode = 'MDT',
-
-        [parameter(Mandatory=$false)]
-        [ValidateSet('Powershell','ISE','VSCode')]
-        [string]$Environment = 'Powershell',
-
-        [parameter(Mandatory=$false)]
-        [string]$DeploymentShare = $global:MyDeploymentShare
-    )
-    #stop an Task Sequence process
-    Get-Process TS* | Stop-Process -Force
-
-    #check for MDT simulator and ZTI module are installed
-    If( (Test-Path $MDTSimulatorPath) -and (Get-Module -ListAvailable -Name ZTIUtility) )
-    {
-        Import-Module ZTIutility
-
-        #if any previous MDT process ran, remove it
-        Remove-Item -Path C:\MININT -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-
-        Write-Host "Starting MDT Simulation..." -ForegroundColor Green
-        switch($Mode){
-
-            'Legacy' {
-                    cscript "$MDTSimulatorPath\ZTIGather.wsf" /debug:true
-            }
-            'PSD'{
-                    . "$MDTSimulatorPath\PSDGather.ps1"
-                    #Get-ChildItem "$MDTSimulatorPath\Modules" -Recurse -Filter *.psm1 | Sort -Descending | %{Import-Module $_.FullName -ErrorAction SilentlyContinue | Out-Null}
-            }
-        }
-        #grab console script called by TS.xml
-        $TSConsoleScript = Get-content "$MDTSimulatorPath\NewPSConsole.ps1"
-
-        #copy powershell to temp directory for editing
-        Copy-item "$MDTSimulatorPath\TSEnv.ps1" "$env:temp\TSEnv.ps1" -Force | Out-Null
-
-        #grab TSscript called by NePSConsole.ps1
-        $TSStartupScript = Get-Content "$env:temp\TSEnv.ps1"
-
-        #change the path to the deploymentshare in the TSenv.ps1 file (cannot be called as argument)
-        ($TSStartupScript).replace("\\Server\deploymentshare",$DeploymentShare) | Set-Content "$env:temp\TSEnv.ps1" -Force
-
-        # to identify correct running process; append the admin value to end of windows (used in VSCode)
-        If(Test-MyIsAdmin -PassThru){$AppendWindow = ' [Administrator]'}Else{$AppendWindow = $null}
-
-        switch($Environment){
-            'Powershell' {
-                            #$Command = "Start-Process `"C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe`" -ArgumentList `"-noexit -noprofile -file C:\MDTSimulator\TSEnv.ps1`" �Wait" | Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
-                            $ProcessPath = "C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe"
-                            $ProcessArgument="$env:temp\TSEnv.ps1"
-
-                            #replace content with path to TSenv.ps1
-                            ($TSConsoleScript).replace("C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe",$ProcessPath).replace("C:\MDTSimulator\TSEnv.ps1",$ProcessArgument) |
-                                        Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
-
-                            #detection for process window
-                            $Window = "MDT Simulator Terminal"
-                            $sleep = 5
-                         }
-            'ISE'        {
-                            $ProcessPath = "C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell_ISE.exe"
-                            $ProcessArgument="$env:temp\TSEnv.ps1"
-
-                            #replace content with ISE process and path to TSenv.ps1
-                            ($TSConsoleScript).replace("C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe",$ProcessPath).replace("-noexit -noprofile -file C:\MDTSimulator\TSEnv.ps1",$ProcessArgument) |
-                                        Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
-
-                            #detection for process window
-                            $Window = "MDT Simulator Terminal"
-                            $sleep = 30
-                         }
-            'VSCode'     {
-                            If(Test-MyVSCodeInstall){
-                                $ProcessPath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\code.exe"
-                                $ProcessArgument="$DeploymentShare $env:temp\TSEnv.ps1 $DeploymentShare\Script\PSDStart.ps1 --new-window"
-
-                                #replace content with VScode process and path to TSenv.ps1
-                                ($TSConsoleScript).replace("C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe",$ProcessPath).replace("-noexit -noprofile -file C:\MDTSimulator\TSEnv.ps1",$ProcessArgument) |
-                                            Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
-
-                                #detection for process window
-                                $Window = "TSEnv.ps1 - DEP-PSD$ - Visual Studio Code" + $AppendWindow
-                                $sleep = 30
-                            }Else{
-                                Write-host "Visual Studio Code was not found; Unable to start MDT simulator with it.`nInstall at https://code.visualstudio.com/ or run command Start-MyVSCodeInstall" -BackgroundColor Red -ForegroundColor White
-                            }
-                         }
-        }
-
-        Write-Host "Copy Collected variables to MININT folder..."
-        Copy-Item 'C:\MININT\SMSOSD\OSDLOGS\VARIABLES.DAT' $MDTSimulatorPath -Force -ErrorAction SilentlyContinue | Out-Null
-
-        Write-Host "Building TSenv: Starting TaskSequence bootstrapper" -ForegroundColor Cyan -NoNewline
-
-        $MDTTerminalProcess = Get-Process | Where {$_.MainWindowTitle -eq $Window}
-        If($MDTTerminalProcess){
-            Set-MyWindowPosition $MDTTerminalProcess -Position Restore -Show
-            Write-Host ('...Simulator terminal already started in {0}' -f $Environment) -ForegroundColor Green
-        }
-        Else{
-            If( ($Environment -eq 'VSCode') -and -Not(Test-MyVSCodeInstall) ){
-                Return $null
-            }
-
-            $timeout = 1
-            Start-Process "$MDTSimulatorPath\TsmBootstrap.exe" -ArgumentList "/env:SAStart" | Out-Null
-            #Start-Process "$MDTSimulatorPath\TsmBootstrap.exe" -ArgumentList "/env:SAContinue" | Out-Null
-            $started = $false
-            #check process until it opens
-            Do {
-
-                $status = Get-Process | Where {$_.MainWindowTitle -eq $Window}
-
-                If (!($status)) { Write-Host '.' -NoNewline -ForegroundColor Cyan ; Start-Sleep -Seconds 1 }
-
-                Else { Write-Host ('Simulator terminal started in {0}' -f $Environment) -ForegroundColor Green; $started = $true; Start-sleep $sleep}
-                $timeout++
-            }
-            Until ( $started -or ($timeout -eq 60) )
-        }
-
-        #change the path to the deploymentshare back to dfault
-        #$TSStartupScript | Set-Content "$MDTSimulatorPath\TSEnv.ps1" -Force
-        $TSConsoleScript | Set-Content "$MDTSimulatorPath\NewPSConsole.ps1" -Force
-    }
-    Else{
-         Write-Host ("No MDT Simulator found in path [{0}]..." -f $MDTSimulatorPath) -ForegroundColor Red
-    }
-
-}
-
 Function Show-MyCommands
 {
     Write-Host ""
@@ -2566,11 +2253,6 @@ Function Show-MyCommands
 #=======================================================
 #exit process of profile script if using vscode
 if (Test-MyVSCode) { exit }
-
-$scriptPath = Get-ScriptPath
-[string]$scriptDirectory = Split-Path $scriptPath -Parent
-[string]$scriptName = Split-Path $scriptPath -Leaf
-[string]$scriptBaseName = [System.IO.Path]::GetFileNameWithoutExtension($scriptName)
 
 $Hour = (Get-Date).Hour
 $UserName = Get-MyAzureUserName -firstname

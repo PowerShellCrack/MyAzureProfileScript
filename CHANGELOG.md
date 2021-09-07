@@ -1,5 +1,12 @@
 # CHANGELOG for Microsoft.Powershell_Profile.ps1
 
+
+## Sep 6, 2021
+
+- Added resources group parameter to Start-AZVM commands
+- Added auto fill for VMname when using parameter and tab
+- Removed unused commands; not needed for Azure lab
+- removed leading spaces.
 ## Aug 28, 2021
 
 - changed functions to standard my format

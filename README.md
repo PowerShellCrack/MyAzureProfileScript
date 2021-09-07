@@ -106,7 +106,6 @@ UPDATE 06/11/2021: All command verbs will start with _My_
 - **Start-MyAzureEnvironment** --> Underlying function that will start the VM's in Azure environment
 - Start-MyAzureVM
 - Start-MyElevatedProcess
-- Start-MyMDTSimulator
 - Start-MyVSCodeInstall
 - Start-MyHyperVM
 - **Connect-MyAzureEnvironment** --> Starts just the Azure lab, 
@@ -120,7 +119,6 @@ UPDATE 06/11/2021: All command verbs will start with _My_
 - Get-MyRemoteDesktopData
 - Get-MyVolumeLevel
 - Install-MyLatestModule
-- Open-MyFile
 - Out-MyVoice
 - Restart-MyHyperV
 - Set-MyAzureEnvironment
@@ -129,6 +127,8 @@ UPDATE 06/11/2021: All command verbs will start with _My_
 - Set-MyWindowPosition
 - Show-MyCommands
 - Stop-MyHyperVM
-- Test-MyIsAdmin
 - Test-MyVSCode
 - Test-MyVSCodeInstall
+
+
+Instead of calling _powershell_ise_ using the alias _ise_. In this profile I set the alias of **vsc** to call _Microsoft Visual Studio_
