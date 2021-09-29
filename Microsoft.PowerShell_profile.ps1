@@ -1063,7 +1063,7 @@ Function Start-MyAzureVM{
                     $commandAst,
                     $fakeBoundParameters )
 
-            $Global:MyAzVMs.VMname | Where-Object {
+            $Global:MyAzVMs | Where {$_.State -ne 'Running'} | Select -ExpandProperty VMName | Where-Object {
                 $_ -like "$wordToComplete*"
             }
 
