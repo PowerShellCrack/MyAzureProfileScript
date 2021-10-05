@@ -204,7 +204,6 @@ public class Audio
 '@
 
 Function Get-MyVolumeLevel{
-    $GetVol = ([audio]::Volume * 100)
 
     Try{
         Add-Type -TypeDefinition $VolumeController | Out-Null
@@ -454,7 +453,7 @@ Function Install-MyLatestModule {
 
         foreach ($item in $name)
         {
-            $ModuleLastRunDate = $DateChecked | Where ModuleName -eq $item | Select -ExpandProperty DateChecked -Last 1
+            $ModuleLastRunDate = $DateChecked | Where-Object ModuleName -eq $item | Select-Object -ExpandProperty DateChecked -Last 1
             If($ModuleLastRunDate)
             {
                 switch($Frequency){
@@ -476,7 +475,7 @@ Function Install-MyLatestModule {
 
             [string]$ModuleName = $item
 
-            $ExistingModules = $InstalledModules | Where Name -eq $ModuleName
+            $ExistingModules = $InstalledModules | Where-Object Name -eq $ModuleName
 
             #comment on module identified
             If($ExistingModules){
@@ -512,16 +511,16 @@ Function Install-MyLatestModule {
                     {
                         Write-Host ("re-installing module [{0}]..." -f $ModuleName) -ForegroundColor Cyan -NoNewline
                         $ExistingModules | Uninstall-Module -Force -ErrorAction Stop
-                        Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -Force -ErrorAction Stop -Verbose:$VerbosePreference
+                        Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -Force -SkipPublisherCheck -ErrorAction Stop -Verbose:$VerbosePreference
                         Write-Host ("Completed") -ForegroundColor Green
                     }
                     Else
                     {
                         #if no moduels exist
-                        If($ExistingModules -eq $null)
+                        If($null -eq $ExistingModules)
                         {
                             Write-Host ("[{0}] is not installed, installing..." -f $ModuleName) -ForegroundColor Gray -NoNewline
-                            Install-Module $ModuleName -Scope AllUsers -Force -AllowClobber -ErrorAction Stop -Verbose:$VerbosePreference
+                            Install-Module $ModuleName -Scope AllUsers -Force -SkipPublisherCheck  -AllowClobber -ErrorAction Stop -Verbose:$VerbosePreference
                             Write-Host ("Installed") -ForegroundColor Green
                         }
 
@@ -541,7 +540,7 @@ Function Install-MyLatestModule {
                                 #uninstall all older Modules with that name, then install the latest
                                 Write-Host ("Uninstalling older [{0}] modules and installing the latest module for [{0}]..." -f $ModuleName) -ForegroundColor Yellow -NoNewline
                                 Get-Module -FullyQualifiedName $ModuleName -ListAvailable | Uninstall-Module -Force -ErrorAction Stop
-                                Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -AllowClobber -Force -ErrorAction Stop -Verbose:$VerbosePreference
+                                Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -AllowClobber -Force -SkipPublisherCheck -ErrorAction Stop -Verbose:$VerbosePreference
                             }
                             Write-Host ("done") -ForegroundColor Green
                         }
@@ -590,6 +589,7 @@ Function Install-MyLatestModule {
         Stop-Transcript | Out-Null
     }
 }
+
 
 Function Connect-MyAzureEnvironment{
     [CmdletBinding(DefaultParameterSetName = 'ListParameterSet',
@@ -694,10 +694,10 @@ Function Connect-MyAzureEnvironment{
                 Set-AzContext -Tenant $AzSubscription.Subscription.TenantId -Subscription $AzSubscription.Subscription.id | Out-Null
                 If($VerbosePreference){Write-Host ("Successfully connected to Azure!") -ForegroundColor Green}
 
-                $MyRGs += Get-AzResourceGroup | Select -ExpandProperty ResourceGroupName
+                $MyRGs += Get-AzResourceGroup | Select-Object -ExpandProperty ResourceGroupName
                 <#
                 If(($global:MyResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyResourceGroup)){
-                    $global:MyResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select -ExpandProperty ResourceGroupName
+                    $global:MyResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select-Object -ExpandProperty ResourceGroupName
                     #set the new context based on found RG
                     Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force | Out-Null
                 }
@@ -717,12 +717,12 @@ Function Connect-MyAzureEnvironment{
             Set-Item Env:\SuppressAzurePowerShellBreakingChangeWarnings "true" | Out-Null
 
             #grab all resource groups in Azure
-            $MyRGs += Get-AzResourceGroup | Select -ExpandProperty ResourceGroupName
+            $MyRGs += Get-AzResourceGroup | Select-Object -ExpandProperty ResourceGroupName
             #Determine if azure resoruce group is in the same list as script
             If( ($global:MyResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyResourceGroup) )
             {
                 If($OutVoice){Out-MyVoice "You must select an Azure Resource Group"}
-                $global:MyResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select -ExpandProperty ResourceGroupName
+                $global:MyResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select-Object -ExpandProperty ResourceGroupName
                 #set the new context based on found RG
                 Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force | Out-Null
             }
@@ -804,19 +804,19 @@ Function Get-MyAzureNSGRules{
             Foreach($VM in $VMName)
             {
                 If(Get-MyAzureVM -VMname $VM){
-                    $nics += Get-AzNetworkInterface | ?{ $_.VirtualMachine.id -like "*$VM*"}
-                    #$nics += Get-AzNetworkInterface | ?{ $_.VirtualMachine.Id.tostring().substring($_.VirtualMachine.Id.tostring().lastindexof('/')+1) -eq $VM}
+                    $nics += Get-AzNetworkInterface | Where-Object { $_.VirtualMachine.id -like "*$VM*"}
+                    #$nics += Get-AzNetworkInterface | Where-Object { $_.VirtualMachine.Id.tostring().substring($_.VirtualMachine.Id.tostring().lastindexof('/')+1) -eq $VM}
                     $subnetIds += $nics.IpConfigurations.subnet.id
                 }
             }
         }
         Else{
-            $nics = Get-AzNetworkInterface | ?{$null -ne $_.VirtualMachine} #skip Nics with no VM
+            $nics = Get-AzNetworkInterface | Where-Object {$null -ne $_.VirtualMachine} #skip Nics with no VM
             $subnetIds = $nics.IpConfigurations.subnet.id
         }
 
         #get only unique subnets
-        $subnetIds = $subnetIds | Select -Unique
+        $subnetIds = $subnetIds | Select-Object -Unique
 
         #loop through all subnets
          #TEST $SubnetId = $subnetIds
@@ -824,7 +824,7 @@ Function Get-MyAzureNSGRules{
         {
             $subnetName = ($subnetId.Split("/")[-1])
             #grab nsg name from vnet
-            $VnetSubnet = $Vnets | Where {$_.Subnets.Id -eq $subnetId}
+            $VnetSubnet = $Vnets | Where-Object {$_.Subnets.Id -eq $subnetId}
             #check if NSG exists on subnet
             $VnetNSGId = $VnetSubnet.Subnets.NetworkSecurityGroup.id
             #$Null -ne $NSGs.NetworkInterfaces
@@ -832,7 +832,7 @@ Function Get-MyAzureNSGRules{
             #if NSG exists on subnet; grab the name and configs
             If($null -ne $VnetNSGId){
                 $VnetNSGName = ($VnetNSGId).Split("/")[-1]
-                $NSGConfigs = $NSGs | Where Name -eq $VnetNSGName
+                $NSGConfigs = $NSGs | Where-Object Name -eq $VnetNSGName
             }
             #if NSG exists on elsewhere; grab the name and configs
             ElseIf($NSGs.SecurityRules.count -gt 1){
@@ -848,16 +848,16 @@ Function Get-MyAzureNSGRules{
             {
                 Foreach($rule in $NSG.SecurityRules){
                     #build info object
-                    $info = "" | Select NSGName,RuleName,Description,AttachedSubnet,Protocol,SourcePort,DestinationPort,SourceAddress,DestinationAddress,Access
+                    $info = "" | Select-Object NSGName,RuleName,Description,AttachedSubnet,Protocol,SourcePort,DestinationPort,SourceAddress,DestinationAddress,Access
                     $info.NSGName = $NSG.Name
                     $info.RuleName = $rule.Name
                     $info.Description = $rule.Description
                     $info.Protocol = $rule.Protocol
                     $info.AttachedSubnet = $SubnetName
-                    $info.SourcePort = $rule.SourcePortRange | Foreach {$_ -join ","}
-                    $info.DestinationPort = $rule.DestinationPortRange | Foreach {$_ -join ","}
-                    $info.SourceAddress = $rule.SourceAddressPrefix | Foreach {$_ -join ","}
-                    $info.DestinationAddress = $rule.DestinationAddressPrefix | Foreach {$_ -join ","}
+                    $info.SourcePort = $rule.SourcePortRange | Foreach-Object {$_ -join ","}
+                    $info.DestinationPort = $rule.DestinationPortRange | Foreach-Object {$_ -join ","}
+                    $info.SourceAddress = $rule.SourceAddressPrefix | Foreach-Object {$_ -join ","}
+                    $info.DestinationAddress = $rule.DestinationAddressPrefix | Foreach-Object {$_ -join ","}
                     $info.Access = $rule.Access
                     $report+=$info
                 }
@@ -869,7 +869,7 @@ Function Get-MyAzureNSGRules{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($nic in $nics)
             {
-                $report | Where {$_.DestinationAddress -eq $nic.IpConfigurations.PrivateIpAddress}
+                $report | Where-Object {$_.DestinationAddress -eq $nic.IpConfigurations.PrivateIpAddress}
             }
         }
         Else{
@@ -969,7 +969,7 @@ Function Get-MyAzureVM{
         $report = @()
 
         #pull all NIC that are attached to Virtual Machine's
-        $nics = Get-AzNetworkInterface | ?{$null -ne $_.VirtualMachine}
+        $nics = Get-AzNetworkInterface | Where-Object {$null -ne $_.VirtualMachine}
         #pull all Virtual Machine's; this is easier and faster than build VM's list one at a time.
         $AllVMs = Get-AzVM -Status -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     }
@@ -979,8 +979,8 @@ Function Get-MyAzureVM{
             #TEST $VM = $VMname
             Foreach($VM in $VMName)
             {
-                $vmNics += $nics | ?{ $_.VirtualMachine.id -like "*$VM"}
-                $VMs += $AllVMs | ?{$_.Name -eq $VM}
+                $vmNics += $nics | Where-Object { $_.VirtualMachine.id -like "*$VM"}
+                $VMs += $AllVMs | Where-Object {$_.Name -eq $VM}
             }
             If($ShowStatus){Write-Host 'completed' -ForegroundColor Green}
         }
@@ -1006,7 +1006,7 @@ Function Get-MyAzureVM{
 
                     #filter NSG rules
                     If($NSGRules -ne 'disabled'){
-                        $JITRules = $NSGRules | Where {($_.DestinationAddress -eq $nic.IpConfigurations.PrivateIpAddress) -and ($_.SourceAddress -eq $global:MyPublicIP) -and ($_.Access -eq 'Allow')}
+                        $JITRules = $NSGRules | Where-Object {($_.DestinationAddress -eq $nic.IpConfigurations.PrivateIpAddress) -and ($_.SourceAddress -eq $global:MyPublicIP) -and ($_.Access -eq 'Allow')}
                         If($JITRules){$JITAccess = $true}Else{$JITAccess = $false}
                     }
                     Else{
@@ -1016,7 +1016,7 @@ Function Get-MyAzureVM{
                     If($VM.PowerState -eq 'vm running'){$vmstate = 'Running'}Else{$vmstate = 'Stopped'}
 
                     #build info object
-                    $info = "" | Select Id,VMName,ResourceGroup,HostName,Location,LocalIP,PublicIP,PublicDNS,State,Tags,JITAccess
+                    $info = "" | Select-Object Id,VMName,ResourceGroup,HostName,Location,LocalIP,PublicIP,PublicDNS,State,Tags,JITAccess
 
                     $info.Id = $VM.id
                     $info.VMName = $VM.Name
@@ -1063,7 +1063,7 @@ Function Start-MyAzureVM{
                     $commandAst,
                     $fakeBoundParameters )
 
-            $Global:MyAzVMs | Where {$_.State -ne 'Running'} | Select -ExpandProperty VMName | Where-Object {
+            $Global:MyAzVMs | Where-Object {$_.State -ne 'Running'} | Select-Object -ExpandProperty VMName | Where-Object {
                 $_ -like "$wordToComplete*"
             }
 
@@ -1121,12 +1121,12 @@ Function Start-MyAzureVM{
             Foreach($VM in $VMName)
             {
                 $startedmessage = ("{0} is started already!" -f $VM)
-                $VMs += Get-MyAzureVM -VMName $VM -NetworkDetails -NoStatus | Where {$_.State -ne 'Running'}
+                $VMs += Get-MyAzureVM -VMName $VM -NetworkDetails -NoStatus | Where-Object {$_.State -ne 'Running'}
             }
         }
         Else{
             $startedmessage = "All VM's are started already!"
-            $VMs = Get-MyAzureVM -NetworkDetails -NoStatus | Where {$_.State -ne 'Running'}
+            $VMs = Get-MyAzureVM -NetworkDetails -NoStatus | Where-Object {$_.State -ne 'Running'}
         }
 
         If($ShowStatus){Write-Host 'Collecting VM running status...' -ForegroundColor DarkGray -NoNewline}
@@ -1141,10 +1141,10 @@ Function Start-MyAzureVM{
                 $taggedVMs = @{}
 
                 #TEST $OrderTag = 'StartupOrder'
-                # $VMs | Select VMname,Tags
+                # $VMs | Select-Object VMname,Tags
                 #first grab vms with tags
                 ForEach ($vm in $VMs) {
-                    $startupValue = $null
+                    #$startupValue = $null
                     if ($vm.Tags[$OrderTag] -eq 0)
                     {
                         Continue
@@ -1165,12 +1165,13 @@ Function Start-MyAzureVM{
                 If($taggedVMs.count -gt 0)
                 {
                     #get max value of startup count and make that the start if the next loop
-                    $StartupEndCount = $taggedVMs.values | Measure-Object -Maximum | Select -ExpandProperty Maximum
+                    $StartupEndCount = $taggedVMs.values | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
 
 
                     #increment number to tag that are null
-                    foreach($key in $taggedVMs.Keys.Clone()){
-                        If ($taggedVMs[$key] -eq $null)
+                    foreach($key in $taggedVMs.Keys.Clone())
+                    {
+                        If ($null -eq $taggedVMs[$key])
                         {
                             $StartupEndCount = $StartupEndCount + 1
                             If($VerbosePreference){write-host ('Adding tag: {0}={1}' -f $key,$StartupEndCount)}
@@ -1181,7 +1182,7 @@ Function Start-MyAzureVM{
                     Write-Host ("[{0}] VM's tagged to start" -f $taggedVMs.count) -ForegroundColor Green
 
                     # Start in order from lowest vm
-                    $tagOrderNum = $taggedVMs.values | Measure-Object -Minimum | Select -ExpandProperty Minimum
+                    $tagOrderNum = $taggedVMs.values | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum
                     $i = 0
                     #TEST ITERATION: $tagOrderNum = 2
                     Do{
@@ -1190,11 +1191,11 @@ Function Start-MyAzureVM{
                         #Always null VM to start
                         $tobeStarted = $null
                         # Get the VM tag that matched current iteration
-                        $tobeStarted = $taggedVMs.GetEnumerator().Where({$_.Value -eq $tagOrderNum}) | Select -ExpandProperty Key
+                        $tobeStarted = $taggedVMs.GetEnumerator().Where({$_.Value -eq $tagOrderNum}) | Select-Object -ExpandProperty Key
                         If($tobeStarted)
                         {
                             #Grab resource id from VM
-                            $VMResourceID = $VMs | Where VMName -eq $tobeStarted | Select -ExpandProperty ID
+                            $VMResourceID = $VMs | Where-Object VMName -eq $tobeStarted | Select-Object -ExpandProperty ID
 
                             Write-Host ("  Attempting to start VM in order: {0}" -f $tobeStarted)
                             Start-AzVM -Id $VMResourceID -ResourceGroupName $ResourceGroupName -asJob | Out-Null
@@ -1210,7 +1211,7 @@ Function Start-MyAzureVM{
 
                 }
                 Else{
-                    Write-Host ("No running VM's where tagged to start") -ForegroundColor Yellow
+                    Write-Host ("No running VM's Where-Object tagged to start") -ForegroundColor Yellow
                 }
 
             }
@@ -1236,14 +1237,14 @@ Function Start-MyAzureVM{
         }
 
         If($ShowStatus){
-            $global:MyAzVMs | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
+            $global:MyAzVMs | Select-Object VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
         }
         Stop-Transcript | Out-Null
     }
 }
 
 
-Function Extract-MaxDuration ([string]$InStr) {
+Function Get-MaxDuration ([string]$InStr) {
     $Out = $InStr -replace ("[^\d]")
     try {return [int]$Out}
     catch {}
@@ -1271,8 +1272,8 @@ Function Set-MyAzureJitPolicy{
                     $fakeBoundParameters )
 
             $RemoteVMs = @()
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select -ExpandProperty PublicDNS
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select -ExpandProperty PublicIP
+            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select-Object -ExpandProperty PublicDNS
+            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select-Object -ExpandProperty PublicIP
 
             $RemoteVMs | Where-Object {
                 $_ -like "$wordToComplete*"
@@ -1357,8 +1358,8 @@ Function Set-MyAzureJitPolicy{
             $VMAllPortsDetails=@()
 
             If($VMJitAccessPolicy){
-                $VMAllPortsDetails += $VMJitAccessPolicy.VirtualMachines | ?{ $_.Id.tostring().substring($_.Id.tostring().lastindexof('/')+1) -in $VM.VMName} | Select -ExpandProperty Ports
-                $VMAccessPorts = $VMAllPortsDetails | Select -ExpandProperty Number -Unique
+                $VMAllPortsDetails += $VMJitAccessPolicy.VirtualMachines | Where-Object { $_.Id.tostring().substring($_.Id.tostring().lastindexof('/')+1) -in $VM.VMName} | Select-Object -ExpandProperty Ports
+                $VMAccessPorts = $VMAllPortsDetails | Select-Object -ExpandProperty Number -Unique
             }
 
             If($Port -notin $VMAccessPorts){
@@ -1366,7 +1367,7 @@ Function Set-MyAzureJitPolicy{
                 Continue  #stop current loop but CONTINUE next one
             }
 
-            #$MaxTime = Extract-MaxDuration ($VMAllPortsDetails.MaxRequestAccessDuration | Select -First 1)
+            #$MaxTime = Get-MaxDuration ($VMAllPortsDetails.MaxRequestAccessDuration | Select-Object -First 1)
             $Date = (Get-Date).ToUniversalTime().AddHours($MaxTime)
             $endTimeUtc = Get-Date -Date $Date -Format o
 
@@ -1377,7 +1378,7 @@ Function Set-MyAzureJitPolicy{
 
             If($ShowStatus){Write-Host ("Validating Just-In-Time access for [{0}] on port [{1}]..." -f $VM.VMName,$Port) -NoNewline}
 
-            $JITexists = $NSGRules | Where { ($_.DestinationAddress -eq $VM.LocalIP) -and ($_.SourceAddress -eq $SourceIP) -and ($_.Access -eq 'Allow')}
+            $JITexists = $NSGRules | Where-Object { ($_.DestinationAddress -eq $VM.LocalIP) -and ($_.SourceAddress -eq $SourceIP) -and ($_.Access -eq 'Allow')}
 
             If(!$JITexists -or $force)
             {
@@ -1425,7 +1426,7 @@ Function Set-MyAzureJitPolicy{
         }
 
         If($ShowStatus){
-            $global:MyAzVMs | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
+            $global:MyAzVMs | Select-Object VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
         }
         Stop-Transcript | Out-Null
 
@@ -1532,7 +1533,7 @@ Function Start-MyLabEnvironment{
             Write-host ("Failed: {0}" -f $_.exception.message) -ForegroundColor Red
         }
     }Else{
-        Write-host ("Azure Gateway IP is sccurate and is set to: ") -NoNewline
+        Write-host ("Azure Gateway IP is accurate and is set to: ") -NoNewline
         Write-host ("{0}..." -f $global:MyPublicIP) -ForegroundColor Green
     }
 
@@ -1680,7 +1681,7 @@ Function Start-MyAzureEnvironment{
         }#end loop
 
         $global:MyAzVMs = Get-MyAzureVM -NetworkDetails
-        $global:MyAzVMs | Select VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
+        $global:MyAzVMs | Select-Object VMName,HostName,LocalIP,PublicIP,PublicDNS,State,JITAccess | Format-Table
 
         Stop-Transcript | Out-Null
     }
@@ -1692,7 +1693,7 @@ Function Convert-XMLtoPSObject {
         $XML
     )
     $Return = New-Object -TypeName PSCustomObject
-    $xml |Get-Member -MemberType Property |Where-Object {$_.MemberType -EQ "Property"} |ForEach {
+    $xml |Get-Member -MemberType Property |Where-Object {$_.MemberType -EQ "Property"} |ForEach-Object {
         IF ($_.Definition -Match "^\bstring\b.*$") {
             $Return | Add-Member -MemberType NoteProperty -Name $($_.Name) -Value $($XML.($_.Name))
         } ElseIf ($_.Definition -Match "^\System.Xml.XmlElement\b.*$") {
@@ -1722,8 +1723,8 @@ Function ConnectTo-MyAzureVM{
                     $fakeBoundParameters )
 
             $RemoteVMs = @()
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select -ExpandProperty PublicDNS
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select -ExpandProperty PublicIP
+            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select-Object -ExpandProperty PublicDNS
+            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select-Object -ExpandProperty PublicIP
 
             $RemoteVMs | Where-Object {
                 $_ -like "$wordToComplete*"
@@ -1763,7 +1764,8 @@ Function ConnectTo-MyAzureVM{
         else{
             Start-Process cmdkey -ArgumentList "/generic:$VMName /user:$Username" -Wait -ErrorAction Stop
         }
-        $Result = Start-Process mstsc -ArgumentList "/v:$VMName /f" -NoNewWindow -PassThru -ErrorAction Stop
+
+        Start-Process mstsc -ArgumentList "/v:$VMName /f" -NoNewWindow -PassThru -ErrorAction Stop
         Start-Sleep 30
     }
     Catch{
@@ -1805,7 +1807,7 @@ Function Get-MyAzureUserName{
         $IDStore = Get-content "$env:LOCALAPPDATA\.IdentityService\V2AccountStore.json"
         $IDPayload = ($IDStore | ConvertFrom-Json).Properties.IdTokenPayload
         If($null -ne $IDPayload){
-            $Name = ($IDPayload | ConvertFrom-Json).name | Select -Last 1
+            $Name = ($IDPayload | ConvertFrom-Json).name | Select-Object -Last 1
         }
     }
     Else{
@@ -1827,7 +1829,7 @@ Function Get-MyRandomAlphanumericString {
 	Begin{
 	}
 	Process{
-        return ( -join ((0x30..0x39) + ( 0x41..0x5A) + ( 0x61..0x7A) | Get-Random -Count $length  | % {([char]$_).ToString().ToUpper()}) )
+        return ( -join ((0x30..0x39) + ( 0x41..0x5A) + ( 0x61..0x7A) | Get-Random -Count $length  | ForEach-Object {([char]$_).ToString().ToUpper()}) )
 	}
 }
 
@@ -1899,11 +1901,11 @@ Function Start-MyHyperVM{
                 $taggedVMs = @{}
 
                 #TEST $OrderTag = 'StartupOrder'
-                #TEST $VMs | Select name,notes
+                #TEST $VMs | Select-Object name,notes
                 #TEST $vm = $VMs[1]
                 #first grab vms with tags
                 ForEach ($vm in $VMs) {
-                    $startupValue = $null
+                    #$startupValue = $null
 
                     if ($vm.Tags[$OrderTag] -eq 0)
                     {
@@ -1925,12 +1927,13 @@ Function Start-MyHyperVM{
                 If($taggedVMs.count -gt 0)
                 {
                     #get max value of startup count and make that the start if the next loop
-                    $StartupEndCount = $taggedVMs.values | Measure-Object -Maximum | Select -ExpandProperty Maximum
+                    $StartupEndCount = $taggedVMs.values | Measure-Object -Maximum | Select-Object -ExpandProperty Maximum
 
 
                     #increment number to tag that are null
-                    foreach($key in $taggedVMs.Keys.Clone()){
-                        If ($taggedVMs[$key] -eq $null)
+                    foreach($key in $taggedVMs.Keys.Clone())
+                    {
+                        If ($null -eq $taggedVMs[$key])
                         {
                             $StartupEndCount = $StartupEndCount + 1
                             If($VerbosePreference){write-host ('Adding tag: {0}={1}' -f $key,$StartupEndCount)}
@@ -1941,7 +1944,7 @@ Function Start-MyHyperVM{
                     Write-Host ("[{0}] VM's tagged to start" -f $taggedVMs.count) -ForegroundColor Green
 
                     # Start in order from lowest vm
-                    $tagOrderNum = $taggedVMs.values | Measure-Object -Minimum | Select -ExpandProperty Minimum
+                    $tagOrderNum = $taggedVMs.values | Measure-Object -Minimum | Select-Object -ExpandProperty Minimum
                     $i = 0
                     #TEST ITERATION: $tagOrderNum = 2
                     Do{
@@ -1950,7 +1953,7 @@ Function Start-MyHyperVM{
                         #Always null VM to start
                         $tobeStarted = $null
                         # Get the VM tag that matched current iteration
-                        $tobeStarted = $taggedVMs.GetEnumerator().Where({$_.Value -eq $tagOrderNum}) | Select -ExpandProperty Key
+                        $tobeStarted = $taggedVMs.GetEnumerator().Where({$_.Value -eq $tagOrderNum}) | Select-Object -ExpandProperty Key
                         If($tobeStarted)
                         {
                             Write-Host ("  Attempting to start VM in order: {0}" -f $tobeStarted)
@@ -1967,7 +1970,7 @@ Function Start-MyHyperVM{
 
                 }
                 Else{
-                    Write-Host ("No running VM's where tagged to start") -ForegroundColor Yellow
+                    Write-Host ("No running VM's Where-Object tagged to start") -ForegroundColor Yellow
                 }
             }
             Else{
@@ -1988,10 +1991,10 @@ Function Start-MyHyperVM{
             }
         }
         Else{
-            $global:MyVMs = Get-MyHyperVM -NetworkDetails | Where {$_.State -eq 'Running'}
+            $global:MyVMs = Get-MyHyperVM -NetworkDetails | Where-Object {$_.State -eq 'Running'}
         }
         If($ShowStatus){
-            $global:MyVMs | Select Name,LocalIP,State | Format-Table
+            $global:MyVMs | Select-Object Name,LocalIP,State | Format-Table
         }
         Stop-Transcript | Out-Null
     }
@@ -2056,7 +2059,7 @@ Function Get-MyHyperVM{
         #pull all Virtual Machine's; this is easier and faster than build VM's list one at a time.
         $AllVMs = Get-VM -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
         $vmwp = Get-CimInstance Win32_Process -Filter "Name like '%vmwp%'"
-        #$vmwp | %{$_.CommandLine.split(" ")[1]}
+        #$vmwp | ForEach-Object {$_.CommandLine.split(" ")[1]}
     }
     Process{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
@@ -2064,7 +2067,7 @@ Function Get-MyHyperVM{
             #TEST $VM = $VMname
             Foreach($VM in $VMName)
             {
-                $VMs += $AllVMs | ?{$_.Name -eq $VM}
+                $VMs += $AllVMs | Where-Object {$_.Name -eq $VM}
             }
             If($ShowStatus){Write-Host 'completed' -ForegroundColor Green}
         }
@@ -2083,9 +2086,9 @@ Function Get-MyHyperVM{
             {
                 If($ShowStatus){Write-Host '.' -ForegroundColor DarkGray -NoNewline}
 
-                $vmwp | %{
+                $vmwp | ForEach-Object {
                     #Try{
-                        $Process = $_ | Where {$_.CommandLine.split(" ")[1].Trim() -eq $VM.id.guid.ToUpper()}
+                        $Process = $_ | Where-Object {$_.CommandLine.split(" ")[1].Trim() -eq $VM.id.guid.ToUpper()}
                     #}Catch{}
                 }
 
@@ -2096,9 +2099,9 @@ Function Get-MyHyperVM{
 
                 #grab tags in notes
                 $VMTags = @{}
-                $VM.Notes -split '\n' | % { $s = $_ -split ':'; $VMTags += @{$s[0].Trim() =  $s[1].Trim()}}
+                $VM.Notes -split '\n' | ForEach-Object { $s = $_ -split ':'; $VMTags += @{$s[0].Trim() =  $s[1].Trim()}}
 
-                $info = "" | Select ProcessID,Id,Name,LocalIP,State,Tags
+                $info = "" | Select-Object ProcessID,Id,Name,LocalIP,State,Tags
                 $info.ProcessID = $Process.ProcessID
                 $info.Id = $VM.id.guid.ToUpper()
                 $info.Name = $VM.Name
@@ -2133,7 +2136,7 @@ Function Stop-MyHyperVM{
 }
 
 Function Restart-MyHyperV{
-    #$guid = Get-VM dtolab-ap1 | select -ExpandProperty vmid
+    #$guid = Get-VM dtolab-ap1 | Select-Object -ExpandProperty vmid
     Get-Process vmms | Stop-Process -Force
     Start-Sleep 10
     Get-Service vmms | Start-Service

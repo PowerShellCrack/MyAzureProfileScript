@@ -1,5 +1,13 @@
 # CHANGELOG for Microsoft.Powershell_Profile.ps1
 
+## Oct 05, 2021
+
+- Added -SkipPublisherCheck to module updater; if new modules were updated from base; it allows install like Pester
+- Corrected misspelled outputs.
+
+## Sep 29, 2021
+
+- Fixed Start-MyAzureVM pre-populated VMname; was coming back with object and not name
 
 ## Sep 6, 2021
 
@@ -7,6 +15,7 @@
 - Added auto fill for VMname when using parameter and tab
 - Removed unused commands; not needed for Azure lab
 - removed leading spaces.
+
 ## Aug 28, 2021
 
 - changed functions to standard my format
