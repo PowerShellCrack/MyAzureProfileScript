@@ -18,6 +18,8 @@ $global:MyLabTag = 'StartupOrder'
 
 $global:MyLabTenant = 'Resource Tenant'
 
+$global:MyLabRouterIP = '192.168.21.6'
+
 $global:MyPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
 #set this to what you want
@@ -1211,7 +1213,7 @@ Function Start-MyAzureVM{
 
                 }
                 Else{
-                    Write-Host ("No running VM's Where-Object tagged to start") -ForegroundColor Yellow
+                    Write-Host ("No running VM's were tagged to start") -ForegroundColor Yellow
                 }
 
             }
@@ -1517,7 +1519,6 @@ Function Start-MyLabEnvironment{
 
     Set-MyAzureEnvironment -MyEnv $global:MyLabTenant
 
-
     Start-MyAzureEnvironment -OrderTag $global:MyLabTag
 
     $LocalGateway = Get-AzLocalNetworkGateway
@@ -1532,14 +1533,39 @@ Function Start-MyLabEnvironment{
         }Catch{
             Write-host ("Failed: {0}" -f $_.exception.message) -ForegroundColor Red
         }
-    }Else{
+    }
+    Else{
         Write-host ("Azure Gateway IP is accurate and is set to: ") -NoNewline
         Write-host ("{0}..." -f $global:MyPublicIP) -ForegroundColor Green
+        Write-host ("Checking gateway connection status...")
+        $Gateways = Get-AzVirtualNetworkGatewayConnection -ResourceGroupName $LocalGateway.ResourceGroupName
+        #TEST $Gateway = $Gateways[0]
+        Foreach($Gateway in $Gateways){
+            $GatewayConnection = Get-AzVirtualNetworkGatewayConnection -name $Gateway.Name -ResourceGroupName $LocalGateway.ResourceGroupName
+            Write-host ("Gateway [{0}] status is: " -f $Gateway.Name) -NoNewline
+            If($GatewayConnection.connectionStatus -eq 'Connected')
+            {
+                Write-host ("{0}" -f $GatewayConnection.connectionStatus) -ForegroundColor Green
+                $VPNConnected = $true
+            }
+            Else{
+                Write-host ("{0}" -f $GatewayConnection.connectionStatus) -ForegroundColor Red
+                $VPNConnected = $false
+            }
+        }
     }
 
     If((Get-WindowsOptionalFeature -FeatureName Microsoft-Hyper-V-All -Online).State -eq 'Enabled'){
         Write-host ("Please wait while starting all Hyper-V VM's by tag order...")
         Start-MyHyperVM -OrderTag $global:MyLabTag
+    }
+
+    If(Test-Connection $global:MyLabRouterIP -Count 1){
+        Write-host ("Local Lab router is running") -NoNewline -ForegroundColor Gray
+        If($VPNConnected -eq $false){Write-host "...SSH to $global:MyLabRouterIP and run 'restart vpn'"  -ForegroundColor Yellow}
+    }Else{
+        Write-host ("Local Lab router is not running and connected to VPN") -ForegroundColor Red
+
     }
 
     Write-Host ""
@@ -1553,6 +1579,7 @@ Function Start-MyLabEnvironment{
     Write-Host ("  eg. ConnectTo-MyAzureVM -VMname azurevm1.eastus.cloudapp.azure.com") -ForegroundColor DarkGray
     Write-Host "==================================================================" -ForegroundColor Green
 }
+
 
 
 Function Start-MyAzureEnvironment{
@@ -1704,8 +1731,6 @@ Function Convert-XMLtoPSObject {
     }
     $Return
 }
-
-
 
 Function ConnectTo-MyAzureVM{
     [CmdletBinding()]
@@ -1970,7 +1995,7 @@ Function Start-MyHyperVM{
 
                 }
                 Else{
-                    Write-Host ("No running VM's Where-Object tagged to start") -ForegroundColor Yellow
+                    Write-Host ("No running VM's were tagged to start") -ForegroundColor Yellow
                 }
             }
             Else{
