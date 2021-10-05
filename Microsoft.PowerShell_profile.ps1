@@ -18,7 +18,7 @@ $global:MyLabTag = 'StartupOrder'
 
 $global:MyLabTenant = 'Resource Tenant'
 
-$global:MyLabRouterIP = '192.168.21.6'
+$global:MyLabRouterIP = '192.168.1.2'
 
 $global:MyPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
