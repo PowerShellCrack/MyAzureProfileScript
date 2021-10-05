@@ -1504,7 +1504,7 @@ Function Enable-MyAzureJitPolicy{
             $JitPolicyArr=@($JitPolicy)
             #Configure the just-in-time VM access rules on the selected VM:
             Set-AzJitNetworkAccessPolicy -Kind "Basic" -Location $VM.Location -Name "default" -VirtualMachine $JitPolicyArr
-            $jitString = ('id=' + $JitPolicyArr.id + ';ports={maxRequestAccessDuration=' + $JitPolicyArr.ports.maxRequestAccessDuration[0] + '}')
+            #$jitString = ('id=' + $JitPolicyArr.id + ';ports={maxRequestAccessDuration=' + $JitPolicyArr.ports.maxRequestAccessDuration[0] + '}')
             #If($VerbosePreference -eq 'Continue'){Write-Host "Command: Set-AzJitNetworkAccessPolicy -Kind "Basic" -Location $($VM.Location) -VirtualMachine {$jitString}" -ForegroundColor Yellow}
         }
     }

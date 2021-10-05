@@ -3,7 +3,7 @@
 ## Oct 05, 2021
 
 - Added -SkipPublisherCheck to module updater; if new modules were updated from base; it allows install like Pester
-- Corrected misspelled outputs.
+- Corrected misspelled outputs and resolved aliases; fixed most lint issues
 
 ## Sep 29, 2021
 
