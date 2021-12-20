@@ -74,7 +74,7 @@ there are othere global settings that can be changes for more automation and fea
 ```powershell
 $global:MyLabTag = 'StartupOrder'
 
-$global:MyLabTenant = 'Resource Tenant'
+$global:MyAzLabTenant = 'Resource Tenant'
 
 $global:MyMDTSimulatorPath = 'C:\MDTSimulator'
 
@@ -108,7 +108,7 @@ UPDATE 06/11/2021: All command verbs will start with _My_
 - Start-MyElevatedProcess
 - Start-MyVSCodeInstall
 - Start-MyHyperVM
-- **Connect-MyAzureEnvironment** --> Starts just the Azure lab, 
+- **Connect-MyAzureEnvironment** --> Starts just the Azure lab,
 - Enable-MyAzureJitPolicy
 - Get-MyAzureNSGRules
 - Get-MyAzureUserName

@@ -1,5 +1,13 @@
 # CHANGELOG for Microsoft.Powershell_Profile.ps1
 
+## Dev 20, 2021
+
+
+- Fixed multiple Azure login; kept trying to use previous login
+- Fixed NSG retrieval; conflicted with Bastion Host NSG's
+- Updated Module display; to many spaces caused wrapping text.
+- added NoRun switch to allow quicker runtime
+
 ## Oct 05, 2021
 
 - Added -SkipPublisherCheck to module updater; if new modules were updated from base; it allows install like Pester

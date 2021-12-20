@@ -1,3 +1,6 @@
+param(
+    [switch]$NoRun
+)
 #=======================================================
 # VARIABLES
 #=======================================================
@@ -16,15 +19,21 @@ $DefaultVoiceProfile = 'Female'
 
 $global:MyLabTag = 'StartupOrder'
 
-$global:MyLabTenant = 'Resource Tenant'
+$global:MyAzEnv  = 'Resource Tenant'
 
-$global:MyLabRouterIP = '192.168.1.2'
+$global:MyVyosRouterIP = '192.168.21.6'
+
+$global:MyMDTSimulatorPath = 'E:\Data\MDTSimulator'
+
+$global:MyDeploymentShare = '\\192.168.1.10\DEP-PSD$'
 
 $global:MyPublicIP = Invoke-RestMethod 'http://ipinfo.io/json' | Select-Object -ExpandProperty IP
 
-#set this to what you want
+#what Powershell Module do you want to install and keep up-to-date?
 $Checkmodules = @('Az','Az.Security','Azure','AzureAD')
 
+#What software do you want to install and keep up-to-date?
+#$CheckSoftware = @('VSCode','NotepadPlusPlus','VLC')
 #=======================================================
 # Functions
 #=======================================================
@@ -32,7 +41,7 @@ Function Set-MyAzureEnvironment{
     [CmdletBinding()]
     param(
         [ValidateSet('Resource Tenant','Services Tenant')]
-        [string]$MyEnv,
+        [string]$Option,
 
         [ValidateSet('TenantID','SubscriptionName','SubscriptionID','ResourceGroup')]
         [string]$Output,
@@ -48,15 +57,15 @@ Function Set-MyAzureEnvironment{
     Start-Transcript -Path $env:TEMP\$FileName -Force -Append | Out-Null
 
     #if parameter force is set, always show selection
-    If($PSBoundParameters.ContainsKey('MyEnv') -and !$Force){
-        $global:MyEnv = $MyEnv
+    If($PSBoundParameters.ContainsKey('Option') -and !$Force){
+        $global:MyAzEnv = $Option
     }
-    Elseif ($Force -or (!$global:MyEnv -or !$global:MyTenantID -or !$global:MySubscriptionName -or !$global:MySubscriptionID -or !$global:MyResourceGroup) ) {
+    Elseif ($Force -or (!$global:MyAzEnv -and !$global:MyAzTenantID -and !$global:MyAzSubscriptionName -and !$global:MyAzSubscriptionID -and !$global:MyAzResourceGroup) ) {
         If($OutVoice){Out-MyVoice "You must select an Azure Environment"}
-        $global:MyEnv = Get-ParameterOption -Command ${CmdletName} -Parameter MyEnv | Out-GridView -Title "Select an Azure Environment" -PassThru
+        $global:MyAzEnv = Get-ParameterOption -Command ${CmdletName} -Parameter Option | Out-GridView -Title "Select an Azure Environment" -PassThru
     }
 
-    Switch($global:myEnv){
+    Switch($global:MyAzEnv){
         #My Azure Site A lab
         'Resource Tenant' {
                     $myTenantID = '<your tenant ID>'
@@ -78,21 +87,19 @@ Function Set-MyAzureEnvironment{
             $mySubscriptionID = '<your subscription ID>'
             $myResourceGroup = '<your resource group>'
     }
-    }
 
     Switch($Output){
-        'TenantID' {$global:myTenantID = $myTenantID}
-        'SubscriptionName' {$global:mySubscriptionName = $mySubscriptionName }
-        'SubscriptionID' {$global:mySubscriptionID = $mySubscriptionID}
-        'ResourceGroup' {$global:myResourceGroup = $myResourceGroup}
+        'TenantID' {return $MyTenantID}
+        'SubscriptionName' {return $MySubscriptionName}
+        'SubscriptionID' {return $MySubscriptionID}
+        'ResourceGroup' {return $MyResourceGroup}
 
         default {
-            $global:myTenantID = $myTenantID
-            $global:mySubscriptionName = $mySubscriptionName
-            $global:mySubscriptionID = $mySubscriptionID
-            $global:myResourceGroup = $myResourceGroup
+            $global:MyAzTenantID = $MyTenantID
+            $global:MyAzSubscriptionName = $MySubscriptionName
+            $global:MyAzSubscriptionID = $MySubscriptionID
+            $global:MyAzResourceGroup = $MyResourceGroup
         }
-
     }
 
     Stop-Transcript | Out-Null
@@ -117,6 +124,19 @@ function Get-ParameterOption {
 #endregion
 
 
+#region FUNCTION: Check if running in ISE
+Function Test-IsISE {
+    # try...catch accounts for:
+    # Set-StrictMode -Version latest
+    try {
+        return ($null -ne $psISE);
+    }
+    catch {
+        return $false;
+    }
+}
+#endregion
+
 #region FUNCTION: Check if running in Visual Studio Code
 Function Test-MyVSCode{
     if($env:TERM_PROGRAM -eq 'vscode') {
@@ -128,6 +148,54 @@ Function Test-MyVSCode{
 }
 #endregion
 
+#region FUNCTION: Find script path for either ISE or console
+Function Get-MyScriptPath {
+    <#
+        .SYNOPSIS
+            Finds the current script path even in ISE or VSC
+        .LINK
+            Test-MyVSCode
+            Test-IsISE
+    #>
+    param(
+        [switch]$Parent
+    )
+
+    Begin{}
+    Process{
+        Try{
+            if ($PSScriptRoot -eq "")
+            {
+                if (Test-IsISE)
+                {
+                    $ScriptPath = $psISE.CurrentFile.FullPath
+                }
+                elseif(Test-VSCode){
+                    $context = $psEditor.GetEditorContext()
+                    $ScriptPath = $context.CurrentFile.Path
+                }Else{
+                    $ScriptPath = (Get-location).Path
+                }
+            }
+            else
+            {
+                $ScriptPath = $PSCommandPath
+            }
+        }
+        Catch{
+            $ScriptPath = '.'
+        }
+    }
+    End{
+
+        If($Parent){
+            Split-Path $ScriptPath -Parent
+        }Else{
+            $ScriptPath
+        }
+    }
+}
+#endregion
 
 Function Test-MyVSCodeInstall{
     $Paths = (Get-Item env:Path).Value.split(';')
@@ -215,7 +283,7 @@ Function Get-MyVolumeLevel{
     }
     Finally{
         If([audio]::Mute){
-            0
+            [int]0
         }
         Else{
             [int]([audio]::Volume * 100)
@@ -248,6 +316,126 @@ Function Set-MyVolumeLevel{
         }
     }
 }
+
+
+Function Test-MyIsAdmin
+{
+<#
+.SYNOPSIS
+   Function used to detect if current user is an Administrator.
+
+.DESCRIPTION
+   Function used to detect if current user is an Administrator. Presents a menu if not an Administrator
+
+.NOTES
+    Name: Test-MyIsAdmin
+    Author: Boe Prox
+    DateCreated: 30April2011
+
+.EXAMPLE
+    Test-MyIsAdmin
+
+
+Description
+-----------
+Command will check the current user to see if an Administrator. If not, a menu is presented to the user to either
+continue as the current user context or enter alternate credentials to use. If alternate credentials are used, then
+the [System.Management.Automation.PSCredential] object is returned by the function.
+#>
+    [cmdletbinding()]
+    Param([switch]$PassThru)
+
+    Write-Verbose "Checking to see if current user context is Administrator"
+    If (-NOT ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator"))
+    {
+        Write-Warning "You are not currently running this under an Administrator account! `nThere is potential that this command could fail if not running under an Administrator account."
+        Write-Verbose "Presenting option for user to pick whether to continue as current user or use alternate credentials"
+        If($PassThru){return $false}
+
+        #Determine Values for Choice
+        $choice = [System.Management.Automation.Host.ChoiceDescription[]] @("Use &Alternate Credentials","&Continue with current Credentials")
+
+        #Determine Default Selection
+        [int]$default = 0
+
+        #Present choice option to user
+        $userchoice = $host.ui.PromptforChoice("Warning","Please select to use Alternate Credentials or current credentials to run command",$choice,$default)
+
+        Write-Debug "Selection: $userchoice"
+
+        #Determine action to take
+        Switch ($Userchoice)
+        {
+            0
+            {
+                #Prompt for alternate credentials
+                Write-Verbose "Prompting for Alternate Credentials"
+                #$Credential = Get-Credential
+		$Credential = $host.ui.PromptForCredential("Need credentials", "Please enter your user name and password.", "", "NetBiosUserName")
+		Write-Output $Credential
+            }
+            1
+            {
+                #Continue using current credentials
+                Write-Verbose "Using current credentials"
+                $Credential = New-Object psobject -Property @{
+    		    UserName = "$env:USERDNSDOMAIN\$env:USERNAME"
+		}
+		Write-Output $Credential
+            }
+        }
+
+    }
+    Else
+    {
+        Write-Verbose "Passed Administrator check"
+        If($PassThru){return $true}
+    }
+}
+
+
+Function Start-MyElevatedProcess
+{
+    param(
+    [Parameter(Mandatory=$false)]
+    [string]$Process = "PowerShell.exe",
+    [Parameter(Mandatory=$false)]
+    [string]$AdminAccount
+    )
+    Begin{
+        $splattable = @{}
+        $splattable['FilePath'] = "PowerShell.exe"
+        $splattable['WorkingDirectory'] = "$PSHOME"
+        $splattable['ArgumentList'] = "Start-Process $Process -Verb runAs"
+        $splattable['NoNewWindow'] = $true
+        $splattable['PassThru'] = $true
+        If ($AdminAccount){
+            Write-host "Prompting for your $env:USERDNSDOMAIN adm password..."
+            $admincheck = $host.ui.PromptForCredential("Need credentials", "Please enter your user name and password.", "$AdminAccount", "NetBiosUserName")
+            #$admincheck = Get-Credential -Credential "$env:USERDNSDOMAIN\$AdminUser" -Message "Please enter your user name and password." -ErrorAction SilentlyContinue
+        }
+        Else{
+            $admincheck = Test-MyIsAdmin
+        }
+        If ($admincheck -is [System.Management.Automation.PSCredential]){
+            $splattable['Credential'] = $admincheck
+        }
+	If(!$admincheck){write-host "Credentials were invalid, exiting..." -ForegroundColor red;break}
+    }
+    Process{
+	    Write-host "Attempting to launch '$Process' as '$($splattable.Credential.UserName)' with elevated administrator privledges. Please wait..." -ForegroundColor Cyan
+	    Try{
+            Start-Process @splattable -ErrorAction Stop
+        }
+        Catch {
+            $ErrorMessage = $_.Exception.Message
+            $FailedItem = $_.Exception.ItemName
+            write-host "Failed to launch $FailedItem. The error message was $ErrorMessage" -ForegroundColor red
+        }
+    }
+}
+
+
 
 Function Out-MyVoice
 {
@@ -366,6 +554,36 @@ Function Out-MyVoice
 } # End: Out-MyVoice
 
 
+Function Open-MyFile{
+    param(
+        [string]$filename,
+        [ValidateSet('run','open')]
+        [string]$method,
+        [switch]$wait
+    )
+    $ext = [System.IO.Path]::GetExtension($filename)
+
+    switch($Method){
+        "run" {
+            switch($ext){
+             '.ps1' {Start-Process powershell.exe -ArgumentList $filename -PassThru | Out-Null}
+             '.rdp' {Start-Process "$env:windir\system32\mstsc.exe" -ArgumentList $filename -PassThru | Out-Null}
+             '.exe' {Start-Process $filename -PassThru | Out-Null}
+            }
+        }
+
+        "open" {
+            switch($ext){
+             '.ps1' {Start-Process powershell_ise.exe -ArgumentList $filename -PassThru | Out-Null}
+             '.rdp' {Start-Process "$env:windir\system32\mstsc.exe" -ArgumentList $filename -PassThru | Out-Null}
+             '.exe' {Start-Process $filename -PassThru | Out-Null}
+            }
+        }
+    }
+}
+
+
+
 Function Install-MyLatestModule {
     [CmdletBinding(DefaultParameterSetName = 'NameParameterSet',
         HelpUri = 'https://go.microsoft.com/fwlink/?LinkID=398573',
@@ -383,8 +601,8 @@ Function Install-MyLatestModule {
         [switch]
         $Force,
 
-        [ValidateSet("Always","Daily","Weekly","Monthly")]
-        [string]$Frequency,
+        [ValidateSet("Always","Daily","Weekly","Monthly","Never")]
+        [string]$UpdateFrequency,
 
         [Parameter()]
         [switch]
@@ -417,6 +635,8 @@ Function Install-MyLatestModule {
 
         #grab all version of the module installed
         $InstalledModules = Get-InstalledModule -ErrorAction SilentlyContinue
+
+        $RefreshNeeded = $false
     }
     Process{
         Try{
@@ -451,19 +671,19 @@ Function Install-MyLatestModule {
         #TEST $item = $Checkmodules[0]
         #TEST $item = 'Az'
 
-
-
         foreach ($item in $name)
         {
             $ModuleLastRunDate = $DateChecked | Where-Object ModuleName -eq $item | Select-Object -ExpandProperty DateChecked -Last 1
             If($ModuleLastRunDate)
             {
-                switch($Frequency){
-                    "Always"  {$CheckModule = $true;$CheckMsg = "validating version"}
-                    "Daily"   {$CheckModule = (Get-date $ModuleLastRunDate) -ne $tagOrderNumdate;$CheckMsg = "skipped validation until tomorrow"}
-                    "Weekly"  {$CheckModule = (Get-date $ModuleLastRunDate) -le [DateTime]::Today.AddDays(-7).ToString("yyyy-MM-dd");$CheckMsg = "skipped validation until next week"}
-                    "Monthly" {$CheckModule = (Get-date $ModuleLastRunDate) -le [DateTime]::Today.AddDays(-30).ToString("yyyy-MM-dd");$CheckMsg = "skipped validation until next month"}
-                    default   {$CheckModule = $true;$CheckMsg = "validating version"}
+                switch($UpdateFrequency)
+                {
+                    "Always"  {$CheckModule = $true}
+                    "Daily"   {[int]$VerifyDays = 1; $DateToCheck = $tagOrderNumdate; $CheckModule = (Get-date $ModuleLastRunDate) -ne $DateToCheck}
+                    "Weekly"  {[int]$VerifyDays = 7; $DateToCheck = [DateTime]::Today.AddDays(-$VerifyDays).ToString("yyyy-MM-dd"); $CheckModule = (Get-date $ModuleLastRunDate) -le $DateToCheck}
+                    "Monthly" {[int]$VerifyDays = 30; $DateToCheck = [DateTime]::Today.AddDays(-$VerifyDays).ToString("yyyy-MM-dd"); $CheckModule = (Get-date $ModuleLastRunDate) -le $DateToCheck}
+                    "Never"   {$CheckModule = $False;continue}
+                    default   {$CheckModule = $true}
                 }
             }
             Else{
@@ -471,17 +691,20 @@ Function Install-MyLatestModule {
             }
 
             #format out text
-            Write-Host ("Searching for Module: ") -ForegroundColor Gray -NoNewline
+            Write-Host ("  Searching for Module :: ") -ForegroundColor Gray -NoNewline
             Write-Host ("{0}" -f $item) -ForegroundColor White -NoNewline
             Write-Host ("...") -ForegroundColor Gray -NoNewline
 
             [string]$ModuleName = $item
 
-            $ExistingModules = $InstalledModules | Where-Object Name -eq $ModuleName
+            #$ExistingModules = $InstalledModules | Where-Object Name -eq $ModuleName
+            $ExistingModules = Get-InstalledModule -Name $ModuleName -AllVersions
 
-            #comment on module identified
-            If($ExistingModules){
-                Write-Host ("found") -ForegroundColor green -NoNewline
+            If($ExistingModules.count -gt 1){
+                Write-Host ("multiple versions found") -ForegroundColor yellow -NoNewline
+            }
+            ElseIf($ExistingModules){
+                Write-Host ("found version [{0}]" -f $ExistingModules.Version.ToString()) -ForegroundColor green -NoNewline
             }Else{
                 Write-Host ("not found") -ForegroundColor red -NoNewline
             }
@@ -490,16 +713,18 @@ Function Install-MyLatestModule {
             #if scheduled to check module, search for module online
             If($CheckModule)
             {
+
                 If($ExistingModules){
-                    Write-Host ("Checking if version [{0}] is latest..." -f $ExistingModules.Version.ToString()) -ForegroundColor Yellow
+                    Write-Host ("checking module's latest version...") -ForegroundColor Yellow
                 }
 
                 $LatestModule = Find-Module $ModuleName -ErrorAction SilentlyContinue
+
             }
             Else{
-                 Write-Host ("{0}" -f $CheckMsg) -ForegroundColor yellow
-                $LatestModule = $ExistingModules
-                Continue
+                $NextDateToCheck = ([DateTime]$tagOrderNumdate).AddDays($VerifyDays).ToString("yyyy-MM-dd")
+                Write-Host ("skipped validation until [{0}]" -f $NextDateToCheck) -ForegroundColor yellow
+                Continue #stop current iteration and go to next module in loop
             }
 
             #if latest module has been found online, proceed
@@ -511,68 +736,76 @@ Function Install-MyLatestModule {
                 {
                     If($PSBoundParameters.ContainsKey('Force'))
                     {
-                        Write-Host ("re-installing module [{0}]..." -f $ModuleName) -ForegroundColor Cyan -NoNewline
+                        Write-Host ("    Re-installing module [{0}]..." -f $ModuleName) -ForegroundColor Cyan -NoNewline
                         $ExistingModules | Uninstall-Module -Force -ErrorAction Stop
                         Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -Force -SkipPublisherCheck -ErrorAction Stop -Verbose:$VerbosePreference
                         Write-Host ("Completed") -ForegroundColor Green
+                        $RefreshNeeded = $true
                     }
                     Else
                     {
                         #if no moduels exist
                         If($null -eq $ExistingModules)
                         {
-                            Write-Host ("[{0}] is not installed, installing..." -f $ModuleName) -ForegroundColor Gray -NoNewline
-                            Install-Module $ModuleName -Scope AllUsers -Force -SkipPublisherCheck  -AllowClobber -ErrorAction Stop -Verbose:$VerbosePreference
+                            Write-Host ("    [{0}] is not installed, installing..." -f $ModuleName) -ForegroundColor Gray -NoNewline
+                            Install-Module $ModuleName -Scope AllUsers -Force -SkipPublisherCheck -AllowClobber -ErrorAction Stop -Verbose:$VerbosePreference
                             Write-Host ("Installed") -ForegroundColor Green
                         }
 
                         #are there multiple of the same module installed?
                         ElseIf( ($ExistingModules | Measure-Object).Count -gt 1)
                         {
-                            Write-Host ("multiple modules found named [{0}], cleaning..." -f $ModuleName) -ForegroundColor Gray -NoNewline
-
                             If($LatestModule.Version -in $ExistingModules.Version)
                             {
-                                Write-Host ("Cleaning up older [{0}] modules..." -f $ModuleName) -ForegroundColor Yellow -NoNewline
+                                Write-Host ("    Latest Module found [{1}], Cleaning up older [{0}] modules..." -f $ModuleName,$LatestModule.Version.ToString()) -ForegroundColor Yellow -NoNewline
                                 #Check to see if latest module is installed already and uninstall anything older
                                 $ExistingModules | Where-Object Version -NotMatch $LatestModule.Version | Uninstall-Module -Force -ErrorAction Stop
                             }
                             Else
                             {
                                 #uninstall all older Modules with that name, then install the latest
-                                Write-Host ("Uninstalling older [{0}] modules and installing the latest module for [{0}]..." -f $ModuleName) -ForegroundColor Yellow -NoNewline
+                                Write-Host ("    Uninstalling older [{0}] modules and installing the latest module version [{1}]..." -f $ModuleName,$LatestModule.Version.ToString()) -ForegroundColor Yellow -NoNewline
                                 Get-Module -FullyQualifiedName $ModuleName -ListAvailable | Uninstall-Module -Force -ErrorAction Stop
                                 Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -AllowClobber -Force -SkipPublisherCheck -ErrorAction Stop -Verbose:$VerbosePreference
                             }
                             Write-Host ("done") -ForegroundColor Green
+                            $RefreshNeeded = $true
                         }
 
                         #if only one module exist but not the latest version
                         ElseIf($ExistingModules.Version -ne $LatestModule.Version)
                         {
-                            Write-Host ("found newer version [{0}]..." -f $LatestModule.Version.ToString()) -ForegroundColor yellow -NoNewline
+                            Write-Host ("    Found newer version [{0}]..." -f $LatestModule.Version.ToString()) -ForegroundColor Cyan -NoNewline
                             #Update module since it was found
                             If($VerbosePreference){Write-Host ("Updating Module [{0}] from [{1}] to the latest version [{2}]..." -f $ModuleName,$ExistingModules.Version,$LatestModule.Version) -NoNewline -ForegroundColor Yellow}
-                            Update-Module $ModuleName -RequiredVersion $LatestModule.Version -Force -ErrorAction Stop -Verbose:$VerbosePreference
+                            Try{
+                                Update-Module $ModuleName -RequiredVersion $LatestModule.Version -Force -ErrorAction Stop -Verbose:$VerbosePreference
+                            }
+                            Catch{
+                                #$_.Exception.GetType().FullName
+                                Install-Module $ModuleName -RequiredVersion $LatestModule.Version -Scope AllUsers -AllowClobber -Force -SkipPublisherCheck -ErrorAction Stop -Verbose:$VerbosePreference
+                            }
                             Write-Host ("Updated") -ForegroundColor Green
+                            $RefreshNeeded = $true
                         }
                         Else
                         {
                             #No issue
-                            Write-Host ("Module [{0}] with version [{1}] is the latest!" -f $ModuleName,$ExistingModules.Version) -ForegroundColor Green
+                            Write-Host ("    Module [{0}] is at latest version [{1}]!" -f $ModuleName,$ExistingModules.Version) -ForegroundColor Green
                             Continue
                         }
                     }
                 }
                 Catch
                 {
-                    Write-Host ("Failed. Error: {0}" -f $_.Exception.Message) -ForegroundColor Red
+                    Write-Host ("    Failed. Error: {0}" -f $_.Exception.Message) -ForegroundColor Red
+
                 }
                 Finally
                 {
                     If($AllowImport){
                         #importing module
-                        Write-Host ("Importing Module [{0}] for use..." -f $ModuleName) -ForegroundColor Green
+                        Write-Host ("    Importing Module [{0}] for use..." -f $ModuleName) -ForegroundColor Green
                         Import-Module -Name $ModuleName -Force:$force -Verbose:$VerbosePreference
                     }
 
@@ -581,17 +814,17 @@ Function Install-MyLatestModule {
                 }
             }
             Else{
-                If($VerbosePreference){Write-Host ("Module [{0}] does not exist, unable to update" -f $ModuleName) -ForegroundColor Red}
+                If($VerbosePreference){Write-Host ("    Module [{0}] does not exist, unable to update" -f $ModuleName) -ForegroundColor Red}
             }
 
         } #end of module loop
     }
     End{
         If($VerbosePreference){Write-Host ("{0} :: Completed module check" -f ${CmdletName}) -ForegroundColor Gray}
+        If($RefreshNeeded){Write-Host ("A restart of Powershell may be required to refresh module versions.") -ForegroundColor Magenta}
         Stop-Transcript | Out-Null
     }
 }
-
 
 Function Connect-MyAzureEnvironment{
     [CmdletBinding(DefaultParameterSetName = 'ListParameterSet',
@@ -611,12 +844,11 @@ Function Connect-MyAzureEnvironment{
             ParameterSetName = 'IDParameterSet')]
         [string]$SubscriptionID ,
 
-        [Parameter(Mandatory = $false,
+        [Parameter(Mandatory = $False,
         ValueFromPipelineByPropertyName = $true,
             Position = 2)]
+            [Alias("ResourceGroup")]
         [string]$ResourceGroupName,
-
-        [switch]$ClearAll,
 
         [boolean]$OutVoice = $VoiceWelcomeMessage
     )
@@ -632,48 +864,57 @@ Function Connect-MyAzureEnvironment{
             $VerbosePreference = $PSCmdlet.SessionState.PSVariable.GetValue('VerbosePreference')
         }
 
-        #grab global variables
-        Set-MyAzureEnvironment
-
         #overwrite global variable if specified
         if ($PSBoundParameters.ContainsKey('TenantID')) {
-            $global:MyTenantID = $TenantID
+            $global:MyAzTenantID = $TenantID
+        }
+        else{
+            $global:MyAzTenantID = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output TenantID
         }
 
         if ($PSBoundParameters.ContainsKey('SubscriptionID')) {
-            $global:MySubscriptionID = $SubscriptionID
+            $global:MyAzSubscriptionID = $SubscriptionID
+        }
+        else{
+            $global:MyAzSubscriptionID = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output SubscriptionID
         }
 
         if ($PSBoundParameters.ContainsKey('SubscriptionName')) {
-            $global:MySubscriptionName = $SubscriptionName
+            $global:MyAzSubscriptionName = $SubscriptionName
+        }
+        else{
+            $global:MyAzSubscriptionName = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output SubscriptionName
         }
 
         #overwrite global resource group is parameter is called
         if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:MyResourceGroup = $ResourceGroupName
+            $global:MyAzResourceGroup = $ResourceGroupName
+        }
+        else{
+            $global:MyAzResourceGroup = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output ResourceGroup
         }
 
-        If($ClearAll){
+        Try{
+            #grab current AZ resources
+            $Context = Get-AzContext -ErrorAction Stop
+            $DefaultRG = Get-AzDefault -ErrorAction Stop
+            #if default is not set, attempt to set it
+            If($DefaultRG)
+            {
+                $DefaultRG = Set-AzDefault -ResourceGroupName $global:MyAzResourceGroup -Force
+            }
+        }
+        Catch [ArgumentException]
+        {
             Write-host ("There was an issue signing into Azure. Resetting and attempting again...") -ForegroundColor yellow
             Clear-AzDefault -ErrorAction SilentlyContinue -Force
             Clear-AzContext -ErrorAction SilentlyContinue -Force
             Disconnect-AzAccount -ErrorAction SilentlyContinue
         }
-        Else{
-            Try{
-                #grab current AZ resources
-                $Context = Get-AzContext -ErrorAction Stop
-                #if defualt is not set, attempt to set it
-                If($null -eq (Get-AzDefault) )
-                {
-                    $DefaultRG = Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force
-                }Else{
-                    $DefaultRG = Get-AzDefault -ErrorAction Stop
-                }
-            }Catch{
-                Write-host ("Failed to get Azure context. {0}" -f $_.Exception.Message) -ForegroundColor yellow
-            }
+        Catch{
+            Write-host ("Failed to get Azure context. {0}" -f $_.Exception.Message) -ForegroundColor yellow
         }
+
 
         $MySubscriptions = @()
         $MyRGs = @()
@@ -684,24 +925,24 @@ Function Connect-MyAzureEnvironment{
         If($VerbosePreference){Write-Host ("Attempting to connect to Azure...") -ForegroundColor Yellow -NoNewline}
         #region connect to Azure if not already connected
         Try{
-            If(($null -eq $Context.Subscription.SubscriptionId) -or ($null -eq $Context.Subscription.Name))
+            If(($Context.Tenant.id -ne $global:MyAzTenantID) -or ($Context.Subscription.SubscriptionId -ne $global:MyAzSubscriptionID))
             {
-                If($global:MyTenantID){
-                    $AzAccount = Connect-AzAccount -Tenant $global:MyTenantID -ErrorAction Stop
+                If($global:MyAzTenantID){
+                    $AzAccount = Connect-AzAccount -Tenant $global:MyAzTenantID -ErrorAction Stop
                 }Else{
                     $AzAccount = Connect-AzAccount -ErrorAction Stop
                 }
-                If($OutVoice){Out-MyVoice "You must select an Azure Subscription"}
+                If($OutVoice){Out-MyVoice "You must select an Azure Subscription, I will bring up a selection menu for you..." -PassThru}
                 $AzSubscription += Get-AzSubscription -WarningAction SilentlyContinue | Out-GridView -PassThru -Title "Select a valid Azure Subscription" | Select-AzSubscription -WarningAction SilentlyContinue
                 Set-AzContext -Tenant $AzSubscription.Subscription.TenantId -Subscription $AzSubscription.Subscription.id | Out-Null
                 If($VerbosePreference){Write-Host ("Successfully connected to Azure!") -ForegroundColor Green}
 
                 $MyRGs += Get-AzResourceGroup | Select-Object -ExpandProperty ResourceGroupName
                 <#
-                If(($global:MyResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyResourceGroup)){
-                    $global:MyResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select-Object -ExpandProperty ResourceGroupName
+                If(($global:MyAzResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyAzResourceGroup)){
+                    $global:MyAzResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select-Object -ExpandProperty ResourceGroupName
                     #set the new context based on found RG
-                    Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force | Out-Null
+                    Set-AzDefault -ResourceGroupName $global:MyAzResourceGroup -Force | Out-Null
                 }
                 #>
             }
@@ -721,19 +962,19 @@ Function Connect-MyAzureEnvironment{
             #grab all resource groups in Azure
             $MyRGs += Get-AzResourceGroup | Select-Object -ExpandProperty ResourceGroupName
             #Determine if azure resoruce group is in the same list as script
-            If( ($global:MyResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyResourceGroup) )
+            If( ($global:MyAzResourceGroup -notin $MyRGs) -or ($DefaultRG.Name -ne $global:MyAzResourceGroup) )
             {
-                If($OutVoice){Out-MyVoice "You must select an Azure Resource Group"}
-                $global:MyResourceGroup = Get-AzResourceGroup | Out-GridView -PassThru -Title "Select a Azure Resource Group" | Select-Object -ExpandProperty ResourceGroupName
+                If($OutVoice){Out-MyVoice "You must select an Azure Resource Group, I will bring up a selection menu for you..." -PassThru}
+                $global:MyAzResourceGroup = Get-AzResourceGroup | Out-GridView -Title "Select a Azure Resource Group" -PassThru | Select-Object -ExpandProperty ResourceGroupName
                 #set the new context based on found RG
-                Set-AzDefault -ResourceGroupName $global:MyResourceGroup -Force | Out-Null
+                Set-AzDefault -ResourceGroupName $global:MyAzResourceGroup -Force | Out-Null
             }
 
             #set the global values if connection
             If($AzSubscription){
-                $global:MySubscriptionName = $AzSubscription.Subscription.Name;
-                $global:MySubscriptionID = $AzSubscription.Subscription.Id;
-                $global:MyTenantID = $AzSubscription.Subscription.TenantId;
+                $global:MyAzSubscriptionName = $AzSubscription.Subscription.Name;
+                $global:MyAzSubscriptionID = $AzSubscription.Subscription.Id;
+                $global:MyAzTenantID = $AzSubscription.Subscription.TenantId;
             }
         }
     }
@@ -759,10 +1000,12 @@ Function Get-MyAzureNSGRules{
         [Alias("VM")]
         [string[]]$VMname,
 
-        [Parameter(Mandatory = $false,
+        [Parameter(Mandatory = $False,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName
+        [string]$ResourceGroupName,
+
+        [boolean]$IgnoreBastionNSG = $true
     )
     Begin
     {
@@ -782,8 +1025,8 @@ Function Get-MyAzureNSGRules{
         }
 
         #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-             $global:MyResourceGroup = $ResourceGroupName
+        if (!$PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $ResourceGroupName = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output ResourceGroup
         }
 
         #if resource group is blank, throw an error
@@ -795,8 +1038,9 @@ Function Get-MyAzureNSGRules{
         $report = @()
         $subnetIds = @()
 
-        $Vnets = Get-AzVirtualNetwork
-        $NSGs = Get-AzNetworkSecurityGroup
+
+        $Vnets = Get-AzVirtualNetwork -ResourceGroupName $ResourceGroupName
+        $NSGs = Get-AzNetworkSecurityGroup -ResourceGroupName $ResourceGroupName
     }
     Process
     {
@@ -806,7 +1050,7 @@ Function Get-MyAzureNSGRules{
             Foreach($VM in $VMName)
             {
                 If(Get-MyAzureVM -VMname $VM){
-                    $nics += Get-AzNetworkInterface | Where-Object { $_.VirtualMachine.id -like "*$VM*"}
+                    $nics += Get-AzNetworkInterface | Where-Object { $_.VirtualMachine.id -match "$VM`$"}
                     #$nics += Get-AzNetworkInterface | Where-Object { $_.VirtualMachine.Id.tostring().substring($_.VirtualMachine.Id.tostring().lastindexof('/')+1) -eq $VM}
                     $subnetIds += $nics.IpConfigurations.subnet.id
                 }
@@ -821,24 +1065,34 @@ Function Get-MyAzureNSGRules{
         $subnetIds = $subnetIds | Select-Object -Unique
 
         #loop through all subnets
-         #TEST $SubnetId = $subnetIds
+        #TEST $SubnetId = $subnetIds[0]
         Foreach($SubnetId in $subnetIds)
         {
             $subnetName = ($subnetId.Split("/")[-1])
             #grab nsg name from vnet
             $VnetSubnet = $Vnets | Where-Object {$_.Subnets.Id -eq $subnetId}
             #check if NSG exists on subnet
-            $VnetNSGId = $VnetSubnet.Subnets.NetworkSecurityGroup.id
+            $VnetNSGIds = $VnetSubnet.Subnets.NetworkSecurityGroup.id
             #$Null -ne $NSGs.NetworkInterfaces
             #$Null -ne $NSGs.Subnets
+
+            $NSGConfigs = @()
+
             #if NSG exists on subnet; grab the name and configs
             If($null -ne $VnetNSGId){
-                $VnetNSGName = ($VnetNSGId).Split("/")[-1]
-                $NSGConfigs = $NSGs | Where-Object Name -eq $VnetNSGName
+                #TEST $VnetNSG = $VnetNSGIds[0]
+                Foreach($VnetNSGId in $VnetNSGIds){
+                    $VnetNSGName = ($VnetNSGId).Split("/")[-1]
+                    If( ($VnetNSGName -match 'AzureBastionSubnet') -and $IgnoreBastionNSG){
+                        $NSGConfigs += $NSGs | Where-Object Name -notmatch 'AzureBastionSubnet'
+                    }Else{
+                        $NSGConfigs += $NSGs | Where-Object Name -eq $VnetNSGName
+                    }
+                }
             }
             #if NSG exists on elsewhere; grab the name and configs
             ElseIf($NSGs.SecurityRules.count -gt 1){
-                $NSGConfigs = $NSGs
+                $NSGConfigs += $NSGs
             }
             Else{
                 #Write-Host "No NSG's were found." -ForegroundColor Red
@@ -846,8 +1100,10 @@ Function Get-MyAzureNSGRules{
                 Continue
             }
 
+            #TEST $NSG = $NSGConfigs[1]
             Foreach($NSG in $NSGConfigs)
             {
+                #TEST $rule = $NSG.SecurityRules[-1]
                 Foreach($rule in $NSG.SecurityRules){
                     #build info object
                     $info = "" | Select-Object NSGName,RuleName,Description,AttachedSubnet,Protocol,SourcePort,DestinationPort,SourceAddress,DestinationAddress,Access
@@ -898,7 +1154,7 @@ Function Get-MyAzureVM{
                     $commandAst,
                     $fakeBoundParameters )
 
-            $Global:MyAzVMs.VMname | Where-Object {
+            $global:MyAzVMs.VMname | Where-Object {
                 $_ -like "$wordToComplete*"
             }
 
@@ -906,10 +1162,10 @@ Function Get-MyAzureVM{
         [Alias("VM")]
         [string]$VMname,
 
-        [Parameter(Mandatory = $false,
+        [Parameter(Mandatory = $False,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:MyResourceGroup,
+        [string]$ResourceGroupName,
 
         [switch]$NetworkDetails,
 
@@ -932,8 +1188,8 @@ Function Get-MyAzureVM{
         }
 
         #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-             $global:MyResourceGroup = $ResourceGroupName
+        if (!$PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $ResourceGroupName = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output ResourceGroup
         }
 
         #if resource group is blank, throw an error
@@ -953,8 +1209,7 @@ Function Get-MyAzureVM{
         {
             If($ShowStatus){Write-Host 'Collecting network information...' -ForegroundColor DarkGray -NoNewline}
             #grab all public IP's
-            $PublicIPs = Get-AzPublicIpAddress
-
+            $PublicIPs = Get-AzPublicIpAddress -ResourceGroupName $ResourceGroupName
             $NSGRules = Get-MyAzureNSGRules
             If($ShowStatus){Write-Host 'completed' -ForegroundColor Green}
         }
@@ -971,9 +1226,9 @@ Function Get-MyAzureVM{
         $report = @()
 
         #pull all NIC that are attached to Virtual Machine's
-        $nics = Get-AzNetworkInterface | Where-Object {$null -ne $_.VirtualMachine}
+        $nics = Get-AzNetworkInterface -ResourceGroupName $ResourceGroupName | Where-Object {$null -ne $_.VirtualMachine}
         #pull all Virtual Machine's; this is easier and faster than build VM's list one at a time.
-        $AllVMs = Get-AzVM -Status -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+        $AllVMs = Get-AzVM -ResourceGroupName $ResourceGroupName -Status -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
     }
     Process{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
@@ -996,6 +1251,7 @@ Function Get-MyAzureVM{
         {
             #list VM and their network info
             #TEST $nic = $vmNics[4]
+            #TEST $nic = $vmNics[0]
             foreach($nic in $vmNics)
             {
                 If($ShowStatus){Write-Host '.' -ForegroundColor DarkGray -NoNewline}
@@ -1046,9 +1302,10 @@ Function Get-MyAzureVM{
 }
 
 
+
 Function Start-MyAzureVM{
-    # Microsoft - Compute Resources
-    #-----------------------------
+# Microsoft - Compute Resources
+#-----------------------------
    [CmdletBinding(DefaultParameterSetName = 'ListParameterSet',
         HelpUri = 'https://go.microsoft.com/fwlink/?LinkID=398573',
         SupportsShouldProcess = $true)]
@@ -1065,7 +1322,7 @@ Function Start-MyAzureVM{
                     $commandAst,
                     $fakeBoundParameters )
 
-            $Global:MyAzVMs | Where-Object {$_.State -ne 'Running'} | Select-Object -ExpandProperty VMName | Where-Object {
+            $global:MyAzVMs | Where-Object {$_.State -ne 'Running'} | Select-Object -ExpandProperty VMName | Where-Object {
                 $_ -like "$wordToComplete*"
             }
 
@@ -1076,7 +1333,7 @@ Function Start-MyAzureVM{
         [Parameter(Mandatory = $False,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:MyResourceGroup,
+        [string]$ResourceGroupName,
         [string]$OrderTag,
         [switch]$NoStatus
     )
@@ -1097,8 +1354,8 @@ Function Start-MyAzureVM{
         }
 
         #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-             $global:MyResourceGroup = $ResourceGroupName
+        if (!$PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $ResourceGroupName = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output ResourceGroup
         }
 
         #if resource group is blank, throw an error
@@ -1200,7 +1457,7 @@ Function Start-MyAzureVM{
                             $VMResourceID = $VMs | Where-Object VMName -eq $tobeStarted | Select-Object -ExpandProperty ID
 
                             Write-Host ("  Attempting to start VM in order: {0}" -f $tobeStarted)
-                            Start-AzVM -Id $VMResourceID -ResourceGroupName $ResourceGroupName -asJob | Out-Null
+                            Start-AzVM -Id $VMResourceID -asJob | Out-Null
                             #Start-AzVM -id $VMResourceID -AsJob
                         }
                         Else{
@@ -1231,7 +1488,7 @@ Function Start-MyAzureVM{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                $global:MyAzVMs = Get-MyAzureVM -VMName $VM -NetworkDetails -NoStatus
+                $global:MyAzVMList += Get-MyAzureVM -VMName $VM -NetworkDetails -NoStatus
             }
         }
         Else{
@@ -1244,7 +1501,6 @@ Function Start-MyAzureVM{
         Stop-Transcript | Out-Null
     }
 }
-
 
 Function Get-MaxDuration ([string]$InStr) {
     $Out = $InStr -replace ("[^\d]")
@@ -1274,8 +1530,8 @@ Function Set-MyAzureJitPolicy{
                     $fakeBoundParameters )
 
             $RemoteVMs = @()
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select-Object -ExpandProperty PublicDNS
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select-Object -ExpandProperty PublicIP
+            $RemoteVMs += $global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select-Object -ExpandProperty PublicDNS
+            $RemoteVMs += $global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select-Object -ExpandProperty PublicIP
 
             $RemoteVMs | Where-Object {
                 $_ -like "$wordToComplete*"
@@ -1288,7 +1544,7 @@ Function Set-MyAzureJitPolicy{
         [Parameter(Mandatory = $False,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:MyResourceGroup,
+        [string]$ResourceGroupName,
 
         [int]$Port = 3389,
         [int]$MaxTime = 3,
@@ -1315,8 +1571,8 @@ Function Set-MyAzureJitPolicy{
         }
 
         #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:MyResourceGroup = $ResourceGroupName
+        if (!$PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $ResourceGroupName = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output ResourceGroup
         }
 
         #if resource group is blank, throw an error
@@ -1420,7 +1676,7 @@ Function Set-MyAzureJitPolicy{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                $global:MyAzVMs = Get-MyAzureVM -VMName $VM -NetworkDetails -NoStatus
+                $global:MyAzVMs += Get-MyAzureVM -VMName $VM -NetworkDetails -NoStatus
             }
         }
         Else{
@@ -1434,6 +1690,7 @@ Function Set-MyAzureJitPolicy{
 
     }
 }
+
 Function Enable-MyAzureJitPolicy{
     Param(
         [Parameter(Mandatory = $true,
@@ -1447,7 +1704,7 @@ Function Enable-MyAzureJitPolicy{
         [Parameter(Mandatory = $False,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:MyResourceGroup
+        [string]$ResourceGroupName
     )
     Begin
     {
@@ -1467,8 +1724,8 @@ Function Enable-MyAzureJitPolicy{
         }
 
         #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:MyResourceGroup = $ResourceGroupName
+        if (!$PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $ResourceGroupName = Set-MyAzureEnvironment -Option $global:MyAzEnv -Output ResourceGroup
         }
 
         #if resource group is blank, throw an error
@@ -1491,7 +1748,7 @@ Function Enable-MyAzureJitPolicy{
         Foreach($VM in $VMName){
             #Assign a variable that holds the just-in-time VM access rules for a VM:
             $JitPolicy = (@{
-                id="/subscriptions/$global:MySubscriptionID/resourceGroups/$ResourceGroupName/providers/Microsoft.Compute/virtualMachines/$VM";
+                id="/subscriptions/$global:MyAzSubscriptionID/resourceGroups/$ResourceGroupName/providers/Microsoft.Compute/virtualMachines/$VM";
                 ports=(@{
                      number=22;
                      protocol="*";
@@ -1514,10 +1771,39 @@ Function Enable-MyAzureJitPolicy{
 }
 
 Function Start-MyLabEnvironment{
-    ## A Simple one line function to do it all
-    Write-host ("Preparing Lab environment...") -ForegroundColor Yellow
+    Param(
+        [Parameter(Mandatory = $false,Position = 0)]
+        [ArgumentCompleter( {
+            param ( $commandName,
+                    $parameterName,
+                    $wordToComplete,
+                    $commandAst,
+                    $fakeBoundParameters )
 
-    Set-MyAzureEnvironment -MyEnv $global:MyLabTenant
+            $Envs = @()
+            $Envs += Get-ParameterOption -Command Set-MyAzureEnvironment -Parameter Option
+
+            $Envs | Where-Object {
+                $_ -like "$wordToComplete*"
+            }
+
+        } )]
+        [Alias("AzEnv")]
+        [string]$AzureEnvironment,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipHyperV
+    )
+
+    If($PSBoundParameters.ContainsKey('AzureEnvironment')){
+        Set-MyAzureEnvironment -Option $AzureEnvironment
+    }
+    Else{
+        Set-MyAzureEnvironment -Option $global:MyAzEnv
+    }
+
+    ## A Simple one line function to do it all
+    Write-host ("Preparing Lab environment [{0}]..." -f $global:MyAzEnv ) -ForegroundColor Yellow
 
     Start-MyAzureEnvironment -OrderTag $global:MyLabTag
 
@@ -1555,18 +1841,22 @@ Function Start-MyLabEnvironment{
         }
     }
 
-    If((Get-WindowsOptionalFeature -FeatureName Microsoft-Hyper-V-All -Online).State -eq 'Enabled'){
-        Write-host ("Please wait while starting all Hyper-V VM's by tag order...")
-        Start-MyHyperVM -OrderTag $global:MyLabTag
+    If(!$SkipHyperV){
+        If((Get-WindowsOptionalFeature -FeatureName Microsoft-Hyper-V-All -Online).State -eq 'Enabled'){
+            Write-host ("Please wait while starting all Hyper-V VM's by tag order...")
+            Start-MyHyperVM -OrderTag $global:MyLabTag
+        }
     }
 
-    If(Test-Connection $global:MyLabRouterIP -Count 1){
+    If(Test-Connection $global:MyVyosRouterIP -Count 1){
         Write-host ("Local Lab router is running") -NoNewline -ForegroundColor Gray
-        If($VPNConnected -eq $false){Write-host "...SSH to $global:MyLabRouterIP and run 'restart vpn'"  -ForegroundColor Yellow}
+        If($VPNConnected -eq $false){Write-host "...SSH to $global:MyVyosRouterIP and run 'restart vpn'"  -ForegroundColor Yellow}
     }Else{
         Write-host ("Local Lab router is not running and connected to VPN") -ForegroundColor Red
 
     }
+
+    $global:MyAzVMs = Get-MyAzureVM -NetworkDetails -NoStatus
 
     Write-Host ""
     Write-Host "Connect to Azure VM:" -ForegroundColor Green
@@ -1581,15 +1871,15 @@ Function Start-MyLabEnvironment{
 }
 
 
-
 Function Start-MyAzureEnvironment{
     [CmdletBinding()]
     Param(
+
         [Parameter(Mandatory = $false,
             ValueFromPipeline=$True,
             ValueFromPipelineByPropertyName = $true)]
         [Alias("ResourceGroup")]
-        [string]$ResourceGroupName = $global:MyResourceGroup,
+        [string]$ResourceGroupName,
         [string]$OrderTag,
         [boolean]$OutVoice = $VoiceWelcomeMessage
     )
@@ -1611,18 +1901,9 @@ Function Start-MyAzureEnvironment{
         }
 
         #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:MyResourceGroup = $ResourceGroupName
+        if (!$PSBoundParameters.ContainsKey('ResourceGroupName')) {
+            $ResourceGroupName = Set-MyAzureEnvironment -Option $global:MyAzEnv  -Output ResourceGroup
         }
-
-        <#
-        #overwrite global resource group is parameter is called
-        if ($PSBoundParameters.ContainsKey('ResourceGroupName')) {
-            $global:MyResourceGroup = $ResourceGroupName
-        }Else{
-            $ResourceGroupName = $global:MyResourceGroup
-        }
-        #>
 
         #if resource group is blank, throw an error
         If($null -eq $ResourceGroupName){
@@ -1636,12 +1917,12 @@ Function Start-MyAzureEnvironment{
     {
         If($PSBoundParameters.ContainsKey('OrderTag') )
         {
-            Write-host ("Please wait while collecting all Azure VM's by tag order...") -NoNewline
+            Write-host ("Please wait while collecting all Azure VM's by tag order...")
             $VMs = Start-MyAzureVM -OrderTag $OrderTag -NoStatus
         }
         Else{
             $message = ("Please wait while collecting all Azure VM's")
-            Write-Host ($message + '...') -ForegroundColor Gray -NoNewline
+            Write-Host ($message + '...') -ForegroundColor Gray
             If($OutVoice){Out-MyVoice $message}
             $VMs = Get-MyAzureVM -NetworkDetails -NoStatus
 
@@ -1679,9 +1960,10 @@ Function Start-MyAzureEnvironment{
         }
     }
     End{
-        foreach ($VM in $Global:MyAzVMs)
+        foreach ($VM in $VMs)
         {
-            If( ($VM.JITAccess -ne 'disabled' -or $VM.JITAccess -eq 'False') -and $VM.PublicIP ){
+            If( ($VM.JITAccess -ne 'disabled' -or $VM.JITAccess -eq 'False') -and $VM.PublicIP )
+            {
                 Try{
                     Write-host ("  Checking Just-In-Time policy on VM: ") -ForegroundColor Gray -NoNewline
                     Write-host ("{0}" -f $VM.VMName) -NoNewline -ForegroundColor Cyan
@@ -1715,23 +1997,6 @@ Function Start-MyAzureEnvironment{
 }
 
 
-Function Convert-XMLtoPSObject {
-    Param (
-        $XML
-    )
-    $Return = New-Object -TypeName PSCustomObject
-    $xml |Get-Member -MemberType Property |Where-Object {$_.MemberType -EQ "Property"} |ForEach-Object {
-        IF ($_.Definition -Match "^\bstring\b.*$") {
-            $Return | Add-Member -MemberType NoteProperty -Name $($_.Name) -Value $($XML.($_.Name))
-        } ElseIf ($_.Definition -Match "^\System.Xml.XmlElement\b.*$") {
-            $Return | Add-Member -MemberType NoteProperty -Name $($_.Name) -Value $(Convert-XMLtoPSObject -XML $($XML.($_.Name)))
-        } Else {
-            Write-Host " Unrecognized Type: $($_.Name)='$($_.Definition)'"
-        }
-    }
-    $Return
-}
-
 Function ConnectTo-MyAzureVM{
     [CmdletBinding()]
     Param(
@@ -1748,8 +2013,8 @@ Function ConnectTo-MyAzureVM{
                     $fakeBoundParameters )
 
             $RemoteVMs = @()
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select-Object -ExpandProperty PublicDNS
-            $RemoteVMs += $Global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select-Object -ExpandProperty PublicIP
+            $RemoteVMs += $global:MyAzVMs | Where-Object {$Null -ne $_.PublicDNS} | Select-Object -ExpandProperty PublicDNS
+            $RemoteVMs += $global:MyAzVMs | Where-Object {$Null -ne $_.PublicIP} | Select-Object -ExpandProperty PublicIP
 
             $RemoteVMs | Where-Object {
                 $_ -like "$wordToComplete*"
@@ -1758,7 +2023,6 @@ Function ConnectTo-MyAzureVM{
         } )]
         [Alias("VM")]
         [string]$VMname,
-        [string]$ResourceGroupName = $global:MyResourceGroup,
         [switch]$RequestJIT,
         [Alias("domainUser")]
         [string]$Username,
@@ -1858,11 +2122,56 @@ Function Get-MyRandomAlphanumericString {
 	}
 }
 
+Function Get-MyRandomAssetTag{
+    param($Count = 1)
 
-Function Get-MyRandomSerialNumber{
-    "$(Get-MyRandomAlphanumericString -length 3)$(Get-random -Minimum 1000000 -Maximum 9999999)$(Get-MyRandomAlphanumericString -length 2)"
+    $AssetTags = @()
+    For ($i = 0; $i -lt $Count) {
+        $AssetTag = "$(Get-MyRandomAlphanumericString -length 3)$(Get-random -Minimum 1000000 -Maximum 9999999)$(Get-MyRandomAlphanumericString -length 2)"
+        $AssetTags += $AssetTag
+        $i++
+    }
+    Return $AssetTags
 
 }
+
+Function Get-MyRandomSerialNumber{
+    param(
+        $Count = 1,
+        [switch]$DellLike
+        )
+
+    $SerialNumbers = @()
+    For ($i = 0; $i -lt $Count) {
+        If($DellLike){
+            $SerialNumber = "$(Get-random -Minimum 10 -Maximum 99)$((65..90) | Get-Random | %{[Char]$_})$(Get-MyRandomAlphanumericString -length 2)$((66..68)+ 71 + 72 + (74..78) + (80..84)+ (86..90)  | Get-Random | %{[Char]$_})1"
+        }
+        Else{
+            $SerialNumber = "$(Get-MyRandomAlphanumericString -length 3)$(Get-random -Minimum 1000 -Maximum 9999)"
+        }
+        $SerialNumbers += $SerialNumber
+        $i++
+    }
+    Return $SerialNumbers
+}
+
+Function Convert-XMLtoPSObject {
+    Param (
+        $XML
+    )
+    $Return = New-Object -TypeName PSCustomObject
+    $xml |Get-Member -MemberType Property |Where-Object {$_.MemberType -EQ "Property"} |ForEach-Object {
+        IF ($_.Definition -Match "^\bstring\b.*$") {
+            $Return | Add-Member -MemberType NoteProperty -Name $($_.Name) -Value $($XML.($_.Name))
+        } ElseIf ($_.Definition -Match "^\System.Xml.XmlElement\b.*$") {
+            $Return | Add-Member -MemberType NoteProperty -Name $($_.Name) -Value $(Convert-XMLtoPSObject -XML $($XML.($_.Name)))
+        } Else {
+            Write-Host " Unrecognized Type: $($_.Name)='$($_.Definition)'"
+        }
+    }
+    $Return
+}
+
 
 Function Start-MyHyperVM{
 # Microsoft - Compute Resources
@@ -1932,7 +2241,7 @@ Function Start-MyHyperVM{
                 ForEach ($vm in $VMs) {
                     #$startupValue = $null
 
-                    if ($vm.Tags[$OrderTag] -eq 0)
+                    if ($vm.Tags[$OrderTag] -eq 0 -or !($vm.Tags[$OrderTag]) )
                     {
                         Continue
                         #do not add vm to list
@@ -1997,6 +2306,7 @@ Function Start-MyHyperVM{
                 Else{
                     Write-Host ("No running VM's were tagged to start") -ForegroundColor Yellow
                 }
+
             }
             Else{
                 #start all deallocated VM's
@@ -2012,14 +2322,15 @@ Function Start-MyHyperVM{
         If($PSCmdlet.ParameterSetName -eq "VMParameterSet"){
             Foreach($VM in $VMName)
             {
-                $global:MyVMs = Get-MyHyperVM -Name $VM -NetworkDetails -NoStatus
+                $global:MyAzVMs = Get-MyHyperVM -Name $VM -NetworkDetails -NoStatus
             }
         }
         Else{
-            $global:MyVMs = Get-MyHyperVM -NetworkDetails | Where-Object {$_.State -eq 'Running'}
+            $global:MyAzVMs = Get-MyHyperVM -NetworkDetails | Where-Object {$_.State -eq 'Running'}
         }
+
         If($ShowStatus){
-            $global:MyVMs | Select-Object Name,LocalIP,State | Format-Table
+            $global:MyAzVMs | Select-Object Name,LocalIP,State | Format-Table
         }
         Stop-Transcript | Out-Null
     }
@@ -2104,8 +2415,10 @@ Function Get-MyHyperVM{
         if ($PSBoundParameters.ContainsKey('NetworkDetails'))
         {
             #list VM and their network info
+            #TEST $vm = $VMs[2]
             #TEST $vm = $VMs[3]
             #TEST $vm = $VMs[6]
+            #TEST $vm = $VMs[8]
             #TEST $vm = $VMs[11]
             foreach($vm in $VMs)
             {
@@ -2124,7 +2437,7 @@ Function Get-MyHyperVM{
 
                 #grab tags in notes
                 $VMTags = @{}
-                $VM.Notes -split '\n' | ForEach-Object { $s = $_ -split ':'; $VMTags += @{$s[0].Trim() =  $s[1].Trim()}}
+                If($VM.Notes){$VM.Notes -split '\n' | ForEach-Object { $s = $_ -split ':'; $VMTags += @{$s[0].Trim() =  $s[1].Trim()} } }
 
                 $info = "" | Select-Object ProcessID,Id,Name,LocalIP,State,Tags
                 $info.ProcessID = $Process.ProcessID
@@ -2225,6 +2538,590 @@ Function Set-MyWindowPosition {
     }
 }
 
+Function Manage-MyHyperVVM{
+    [CmdletBinding()]
+    Param(
+        [parameter(Mandatory=$false)]
+        [string[]]$AlwaysOn = @('Router','DC'),
+        [parameter(Mandatory=$false)]
+        [string[]]$Exclude = 'DEMO',
+        [parameter(Mandatory=$false)]
+        [int]$KeepAlive = 600,
+        [switch]$KillProcess
+    )
+    Begin{
+        If($Exclude.Count -gt 1){$Exclude = $Exclude -join '|'}
+        If($AlwaysOn.Count -gt 1){$AlwaysOn = $AlwaysOn -join '|'}
+        $RotateVMs = Get-VM | Where-Object {($_.Name -notmatch $Exclude) -and ($_.Name -notmatch $AlwaysOn)}
+        $AlwaysOnVMs = Get-VM | Where-Object {($_.Name -match $AlwaysOn)}
+
+
+        Write-Host ('Start rotating {0} virtual machine power state...' -f $RotateVMs.count) -ForegroundColor Cyan
+        $Stopwatch = [System.Diagnostics.Stopwatch]::new()
+
+        If($KillProcess){
+            $freemem = Get-WmiObject -Class Win32_OperatingSystem
+            If([math]::round($freemem.FreePhysicalMemory / 1024, 2) -lt 5120)
+            {
+                $processes = @(
+                    'vmconnect',
+                    'iexplorer',
+                    'msedge',
+                    'msedgewebview2',
+                    'code',
+                    'Teams',
+                    'chrome',
+                    'OUTLOOK',
+                    'WINWORD',
+                    'VISIO',
+                    'POWERPNT',
+                    'devenv',
+                    'Snagit32',
+                    'CamtasiaStudio',
+                    'powershell_ise'
+                )
+
+                $processes | %{Get-Process $_ -ErrorAction SilentlyContinue | Stop-Process -Force}
+            }
+            Else{
+                Write-Host ('No processes were stopped; host has plenty of memory [{0}]...' -f ([math]::round($freemem.FreePhysicalMemory / 1024, 2)) )
+            }
+        }
+    }
+    Process{
+        $Stopwatch.Start()
+
+        #TEST $VM = $AlwaysOnVMs[0]
+        Foreach($VM in $AlwaysOnVMs){
+            Write-Host ('Ensuring power state for VM [{0}] is started...' -f $VM.Name) -NoNewline
+            Try{
+                Start-VM $VM.Name
+                Write-Host ('Done') -ForegroundColor Green
+            }
+            Catch{
+                Write-Host ('{0}' -f $_.Exception.Message) -ForegroundColor Red
+                Continue
+            }
+        }
+
+        #TEST $VM = $RotateVMs[0]
+        Foreach($VM in $RotateVMs){
+            Write-Host ('Monitoring power state for VM [{0}]...' -f $VM.Name) -NoNewline
+            Try{
+                Start-VM $VM.Name
+                Write-Host ('Started') -ForegroundColor Green
+            }
+            Catch{
+                Write-Host ('{0}' -f $_.Exception.Message) -ForegroundColor Red
+                Continue
+            }
+
+            Write-Host ('{0} will run for [{1}] minutes' -f $VM.Name,($KeepAlive/60)) -NoNewline
+            do {
+                Start-Sleep -Seconds 10
+                Write-Host ('.') -NoNewline
+                $i++
+            } until ($i -gt ($KeepAlive/10) )
+            Write-Host ('Ready to process next VM...')  -ForegroundColor Cyan
+
+            Write-Host ('Monitoring power state for VM [{0}]...' -f $VM.Name) -NoNewline
+            Try{
+                Stop-VM $VM.Name
+                Write-Host ('Shutdown') -ForegroundColor Green
+            }
+            Catch{
+                Write-Host ('Unable to shutdown VM appropiately: {0}' -f $_.Exception.Message) -ForegroundColor Red
+                Stop-VM $VM.Name -Force -TurnOff
+            }
+        }
+    }
+    End{
+        $Time = $Stopwatch.Elapsed.Minutes
+        Write-Host ('Finished rotating VMs: {0}' -f $Time) -ForegroundColor Cyan
+    }
+}
+
+function Set-MyHyperVVMSettings
+{
+	<#
+	.SYNOPSIS
+		Changes the settings for Hyper-V guests that are not available through GUI tools.
+		If you do not specify any parameters to be changed, the script will re-apply the settings that the virtual machine already has.
+	.DESCRIPTION
+		Changes the settings for Hyper-V guests that are not available through GUI tools.
+		If you do not specify any parameters to be changed, the script will re-apply the settings that the virtual machine already has.
+		If the virtual machine is running, this script will attempt to shut it down prior to the operation. Once the replacement is complete, the virtual machine will be turned back on.
+	.PARAMETER VM
+		The name or virtual machine object of the virtual machine whose BIOSGUID is to be changed. Will accept a string, output from Get-VM, or a WMI instance of class Msvm_ComputerSystem.
+	.PARAMETER ComputerName
+		The name of the Hyper-V host that owns the target VM. Only used if VM is a string.
+	.PARAMETER NewBIOSGUID
+		The new GUID to assign to the virtual machine. Cannot be used with AutoGenBIOSGUID.
+	 .PARAMETER AutoGenBIOSGUID
+		  Automatically generate a new BIOS GUID for the VM. Cannot be used with NewBIOSGUID.
+	 .PARAMETER BaseboardSerialNumber
+		  New value for the VM's baseboard serial number.
+	 .PARAMETER BIOSSerialNumber
+		  New value for the VM's BIOS serial number.
+	 .PARAMETER ChassisAssetTag
+		  New value for the VM's chassis asset tag.
+	 .PARAMETER ChassisSerialNumber
+		  New value for the VM's chassis serial number.
+	.PARAMETER ComputerName
+		The Hyper-V host that owns the virtual machine to be modified.
+	.PARAMETER Timeout
+		Number of seconds to wait when shutting down the guest before assuming the shutdown failed and ending the script.
+		Default is 300 (5 minutes).
+		If the virtual machine is off, this parameter has no effect.
+	.PARAMETER Force
+		Suppresses prompts. If this parameter is not used, you will be prompted to shut down the virtual machine if it is running and you will be prompted to replace the BIOSGUID.
+		Force can shut down a running virtual machine. It cannot affect a virtual machine that is saved or paused.
+	.PARAMETER WhatIf
+		Performs normal WhatIf operations by displaying the change that would be made. However, the new BIOSGUID is automatically generated on each run. The one that WhatIf displays will not be used.
+	.NOTES
+		Version 1.2
+		July 25th, 2018
+		Author: Eric Siron
+
+		Version 1.2:
+		* Multiple non-impacting infrastructure improvements
+		* Fixed operating against remote systems
+		* Fixed "Force" behavior
+
+		Version 1.1: Fixed incorrect verbose outputs. No functionality changes.
+	.EXAMPLE
+		Set-VMAdvancedSettings -VM svtest -AutoGenBIOSGUID
+
+		Replaces the BIOS GUID on the virtual machine named svtest with an automatically-generated ID.
+
+	.EXAMPLE
+		Set-VMAdvancedSettings svtest -AutoGenBIOSGUID
+
+		Exactly the same as example 1; uses positional parameter for the virtual machine.
+
+	.EXAMPLE
+		Get-VM svtest | Set-VMAdvancedSettings -AutoGenBIOSGUID
+
+		Exactly the same as example 1 and 2; uses the pipeline.
+
+	.EXAMPLE
+		Set-VMAdvancedSettings -AutoGenBIOSGUID -Force
+
+		Exactly the same as examples 1, 2, and 3; prompts suppressed.
+
+	.EXAMPLE
+		Set-VMAdvancedSettings -VM svtest -NewBIOSGUID $Guid
+
+		Replaces the BIOS GUID of svtest with the supplied ID. These IDs can be generated with [System.Guid]::NewGuid(). You can also supply any value that can be parsed to a GUID (ex: C0AB8999-A69A-44B7-B6D6-81457E6EC66A }.
+
+	.EXAMPLE
+		Set-VMAdvancedSettings -VM svtest -NewBIOSGUID $Guid -BaseBoardSerialNumber '42' -BIOSSerialNumber '42' -ChassisAssetTag '42' -ChassisSerialNumber '42'
+
+		Modifies all settings that this function can affect.
+
+	.EXAMPLE
+		Set-VMAdvancedSettings -VM svtest -AutoGenBIOSGUID -WhatIf
+
+		Shows HOW the BIOS GUID will be changed, but the displayed GUID will NOT be recycled if you run it again without WhatIf. TIP: Use this to view the current BIOS GUID without changing it.
+
+	.EXAMPLE
+		Set-VMAdvancedSettings -VM svtest -NewBIOSGUID $Guid -BaseBoardSerialNumber '42' -BIOSSerialNumber '42' -ChassisAssetTag '42' -ChassisSerialNumber '42' -WhatIf
+
+		Shows what would be changed without making any changes. TIP: Use this to view the current settings without changing them.
+
+    .LINK
+        https://www.altaro.com/hyper-v/powershell-script-change-advanced-settings-hyper-v-virtual-machines/
+	#>
+	#requires -Version 4
+
+	[CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='High', DefaultParameterSetName='ManualBIOSGUID')]
+	param
+	(
+		[Parameter(Mandatory=$true, ValueFromPipeline=$true, Position=1)][PSObject]$VM,
+		[Parameter()][String]$ComputerName = $env:COMPUTERNAME,
+		[Parameter(ParameterSetName='ManualBIOSGUID')][Object]$NewBIOSGUID,
+		[Parameter(ParameterSetName='AutoBIOSGUID')][Switch]$AutoGenBIOSGUID,
+		[Parameter()][String]$BaseBoardSerialNumber,
+		[Parameter()][String]$BIOSSerialNumber,
+		[Parameter()][String]$ChassisAssetTag,
+		[Parameter()][String]$ChassisSerialNumber,
+		[Parameter()][UInt32]$Timeout = 300,
+		[Parameter()][Switch]$Force
+	)
+
+	begin
+	{
+		  function Change-VMSetting
+		  {
+				param
+				(
+					 [Parameter(Mandatory=$true)][System.Management.ManagementObject]$VMSettings,
+					 [Parameter(Mandatory=$true)][String]$PropertyName,
+					 [Parameter(Mandatory=$true)][String]$NewPropertyValue,
+					 [Parameter(Mandatory=$true)][String]$PropertyDisplayName,
+					 [Parameter(Mandatory=$true)][System.Text.StringBuilder]$ConfirmText
+				)
+				$Message = 'Set "{0}" from {1} to {2}' -f $PropertyName, $VMSettings[($PropertyName)], $NewPropertyValue
+				Write-Verbose -Message $Message
+				$OutNull = $ConfirmText.AppendLine($Message)
+				$CurrentSettingsData[($PropertyName)] = $NewPropertyValue
+				$OriginalValue = $CurrentSettingsData[($PropertyName)]
+		  }
+
+		<# adapted from http://blogs.msdn.com/b/taylorb/archive/2008/06/18/hyper-v-wmi-rich-error-messages-for-non-zero-returnvalue-no-more-32773-32768-32700.aspx #>
+		function Process-WMIJob
+		{
+			param
+			(
+				[Parameter(ValueFromPipeline=$true)][System.Management.ManagementBaseObject]$WmiResponse,
+				[Parameter()][String]$WmiClassPath = $null,
+				[Parameter()][String]$MethodName = $null,
+				[Parameter()][String]$VMName,
+				[Parameter()][String]$ComputerName
+			)
+
+			process
+			{
+				$ErrorCode = 0
+
+				if($WmiResponse.ReturnValue -eq 4096)
+				{
+					$Job = [WMI]$WmiResponse.Job
+
+					while ($Job.JobState -eq 4)
+					{
+						Write-Progress -Activity ('Modifying virtual machine {0} on host {1}' -f $VMName, $ComputerName) -Status ('{0}% Complete' -f $Job.PercentComplete) -PercentComplete $Job.PercentComplete
+						Start-Sleep -Milliseconds 100
+						$Job.PSBase.Get()
+					}
+
+					if($Job.JobState -ne 7)
+					{
+						if ($Job.ErrorDescription -ne "")
+						{
+							Write-Error -Message $Job.ErrorDescription
+							exit 1
+						}
+						else
+						{
+							$ErrorCode = $Job.ErrorCode
+						}
+						Write-Progress $Job.Caption "Completed" -Completed $true
+					}
+				}
+				elseif ($WmiResponse.ReturnValue -ne 0)
+				{
+					$ErrorCode = $WmiResponse.ReturnValue
+				}
+
+				if($ErrorCode -ne 0)
+				{
+					if($WmiClassPath -and $MethodName)
+					{
+						$PSWmiClass = [WmiClass]$WmiClassPath
+						$PSWmiClass.PSBase.Options.UseAmendedQualifiers = $true
+						$MethodQualifiers = $PSWmiClass.PSBase.Methods[$MethodName].Qualifiers
+						$IndexOfError = [System.Array]::IndexOf($MethodQualifiers["ValueMap"].Value, [String]$ErrorCode)
+						if($IndexOfError -ne "-1")
+						{
+							Write-Error -Message ('Error Code: {0}, Method: {1}, Error: {2}' -f $ErrorCode, $MethodName, $MethodQualifiers["Values"].Value[$IndexOfError])
+							exit 1
+						}
+						else
+						{
+							Write-Error -Message ('Error Code: {0}, Method: {1}, Error: Message Not Found' -f $ErrorCode, $MethodName)
+							exit 1
+						}
+					}
+				}
+			}
+		}
+	}
+	process
+	{
+		$ConfirmText = New-Object System.Text.StringBuilder
+		$VMObject = $null
+		Write-Verbose -Message 'Validating input...'
+		$VMName = ''
+		$InputType = $VM.GetType()
+		if($InputType.FullName -eq 'System.String')
+		{
+			$VMName = $VM
+		}
+		elseif($InputType.FullName -eq 'Microsoft.HyperV.PowerShell.VirtualMachine')
+		{
+			$VMName = $VM.Name
+			$ComputerName = $VM.ComputerName
+		}
+		elseif($InputType.FullName -eq 'System.Management.ManagementObject')
+		{
+			$VMObject = $VM
+		}
+		else
+		{
+			Write-Error -Message 'You must supply a virtual machine name, a virtual machine object from the Hyper-V module, or an Msvm_ComputerSystem WMI object.'
+			exit 1
+		}
+
+		if($NewBIOSGUID -ne $null)
+		{
+			try
+			{
+				$NewBIOSGUID = [System.Guid]::Parse($NewBIOSGUID)
+			}
+			catch
+			{
+				Write-Error -Message 'Provided GUID cannot be parsed. Supply a valid GUID or use the AutoGenBIOSGUID parameter to allow an ID to be automatically generated.'
+				exit 1
+			}
+		}
+
+		Write-Verbose -Message ('Establishing WMI connection to Virtual Machine Management Service on {0}...' -f $ComputerName)
+		$VMMS = Get-WmiObject -ComputerName $ComputerName -Namespace 'rootvirtualizationv2' -Class 'Msvm_VirtualSystemManagementService' -ErrorAction Stop
+		Write-Verbose -Message 'Acquiring an empty parameter object for the ModifySystemSettings function...'
+		$ModifySystemSettingsParams = $VMMS.GetMethodParameters('ModifySystemSettings')
+		Write-Verbose -Message ('Establishing WMI connection to virtual machine {0}' -f $VMName)
+		if($VMObject -eq $null)
+		{
+			$VMObject = Get-WmiObject -ComputerName $ComputerName -Namespace 'rootvirtualizationv2' -Class 'Msvm_ComputerSystem' -Filter ('ElementName = "{0}"' -f $VMName) -ErrorAction Stop
+		}
+		if($VMObject -eq $null)
+		{
+			Write-Error -Message ('Virtual machine {0} not found on computer {1}' -f $VMName, $ComputerName)
+			exit 1
+		}
+		Write-Verbose -Message ('Verifying that {0} is off...' -f $VMName)
+		$OriginalState = $VMObject.EnabledState
+		if($OriginalState -ne 3)
+		{
+			if($OriginalState -eq 2 -and ($Force.ToBool() -or $PSCmdlet.ShouldProcess($VMName, 'Shut down')))
+			{
+				$ShutdownComponent = $VMObject.GetRelated('Msvm_ShutdownComponent')
+				Write-Verbose -Message 'Initiating shutdown...'
+				Process-WMIJob -WmiResponse $ShutdownComponent.InitiateShutdown($true, 'Change BIOSGUID') -WmiClassPath $ShutdownComponent.ClassPath -MethodName 'InitiateShutdown' -VMName $VMName -ComputerName $ComputerName -ErrorAction Stop
+				# the InitiateShutdown function completes as soon as the guest's integration services respond; it does not wait for the power state change to complete
+				Write-Verbose -Message ('Waiting for virtual machine {0} to shut down...' -f $VMName)
+				$TimeoutCounterStarted = [datetime]::Now
+				$TimeoutExpiration = [datetime]::Now + [timespan]::FromSeconds($Timeout)
+				while($VMObject.EnabledState -ne 3)
+				{
+					$ElapsedPercent = [UInt32]((([datetime]::Now - $TimeoutCounterStarted).TotalSeconds / $Timeout) * 100)
+					if($ElapsedPercent -ge 100)
+					{
+						Write-Error -Message ('Timeout waiting for virtual machine {0} to shut down' -f $VMName)
+						exit 1
+					}
+					else
+					{
+						Write-Progress -Activity ('Waiting for virtual machine {0} on {1} to stop' -f $VMName, $ComputerName) -Status ('{0}% timeout expiration' -f ($ElapsedPercent)) -PercentComplete $ElapsedPercent
+						Start-Sleep -Milliseconds 250
+						$VMObject.Get()
+					}
+				}
+			}
+			elseif($OriginalState -ne 2)
+			{
+				Write-Error -Message ('Virtual machine must be turned off to change advanced settings. It is not in a state this script can work with.' -f $VMName)
+				exit 1
+			}
+		}
+		Write-Verbose -Message ('Retrieving all current settings for virtual machine {0}' -f $VMName)
+		$CurrentSettingsDataCollection = $VMObject.GetRelated('Msvm_VirtualSystemSettingData')
+		Write-Verbose -Message 'Extracting the settings data object from the settings data collection object...'
+		$CurrentSettingsData = $null
+		foreach($SettingsObject in $CurrentSettingsDataCollection)
+		{
+			if($VMObject.Name -eq $SettingsObject.ConfigurationID)
+			{
+				$CurrentSettingsData = [System.Management.ManagementObject]($SettingsObject)
+			}
+		}
+
+		if($AutoGenBIOSGUID -or $NewBIOSGUID)
+		{
+			if($AutoGenBIOSGUID)
+			{
+				$NewBIOSGUID = [System.Guid]::NewGuid().ToString()
+			}
+			Change-VMSetting -VMSettings $CurrentSettingsData -PropertyName 'BIOSGUID' -NewPropertyValue (('{{{0}}}' -f $NewBIOSGUID).ToUpper()) -PropertyDisplayName 'BIOSGUID' -ConfirmText $ConfirmText
+		}
+		if($BaseBoardSerialNumber)
+		{
+			Change-VMSetting -VMSettings $CurrentSettingsData -PropertyName 'BaseboardSerialNumber' -NewPropertyValue $BaseBoardSerialNumber -PropertyDisplayName 'baseboard serial number' -ConfirmText $ConfirmText
+		}
+		if($BIOSSerialNumber)
+		{
+			Change-VMSetting -VMSettings $CurrentSettingsData -PropertyName 'BIOSSerialNumber' -NewPropertyValue $BIOSSerialNumber -PropertyDisplayName 'BIOS serial number' -ConfirmText $ConfirmText
+		}
+		if($ChassisAssetTag)
+		{
+			Change-VMSetting -VMSettings $CurrentSettingsData -PropertyName 'ChassisAssetTag' -NewPropertyValue $ChassisAssetTag -PropertyDisplayName 'chassis asset tag' -ConfirmText $ConfirmText
+		}
+		if($ChassisSerialNumber)
+		{
+			Change-VMSetting -VMSettings $CurrentSettingsData -PropertyName 'ChassisSerialNumber' -NewPropertyValue $ChassisSerialNumber -PropertyDisplayName 'chassis serial number' -ConfirmText $ConfirmText
+		}
+
+		Write-Verbose -Message 'Assigning modified data object as parameter for ModifySystemSettings function...'
+		$ModifySystemSettingsParams['SystemSettings'] = $CurrentSettingsData.GetText([System.Management.TextFormat]::CimDtd20)
+		if($Force.ToBool() -or $PSCmdlet.ShouldProcess($VMName, $ConfirmText.ToString()))
+		{
+			Write-Verbose -Message ('Instructing Virtual Machine Management Service to modify settings for virtual machine {0}' -f $VMName)
+			Process-WMIJob -WmiResponse ($VMMS.InvokeMethod('ModifySystemSettings', $ModifySystemSettingsParams, $null)) -WmiClassPath $VMMS.ClassPath -MethodName 'ModifySystemSettings' -VMName $VMName -ComputerName $ComputerName
+		}
+		$VMObject.Get()
+		if($OriginalState -ne $VMObject.EnabledState)
+		{
+			Write-Verbose -Message ('Returning {0} to its prior running state.' -f $VMName)
+			Process-WMIJob -WmiResponse $VMObject.RequestStateChange($OriginalState) -WmiClassPath $VMObject.ClassPath -MethodName 'RequestStateChange' -VMName $VMName -ComputerName $ComputerName -ErrorAction Stop
+		}
+	}
+}
+
+
+Function Start-MyMDTSimulator{
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $False,
+            Position = 0)]
+        [string]$MDTSimulatorPath = $global:MyMDTSimulatorPath,
+
+        [parameter(Mandatory=$false)]
+        [ValidateSet('MDT','PSD')]
+        [string]$Mode = 'MDT',
+
+        [parameter(Mandatory=$false)]
+        [ValidateSet('Powershell','ISE','VSCode')]
+        [string]$Environment = 'Powershell',
+
+        [parameter(Mandatory=$false)]
+        [string]$DeploymentShare = $global:MyDeploymentShare
+    )
+    #stop an Task Sequence process
+    Get-Process TS* | Stop-Process -Force
+
+    #check for MDT simulator and ZTI module are installed
+    If( (Test-Path $MDTSimulatorPath) -and (Get-Module -ListAvailable -Name ZTIUtility) )
+    {
+        Import-Module ZTIutility
+
+        #if any previous MDT process ran, remove it
+        Remove-Item -Path C:\MININT -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+
+        Write-Host "Starting MDT Simulation..." -ForegroundColor Green
+        switch($Mode){
+
+            'MDT' {
+                    cscript "$MDTSimulatorPath\ZTIGather.wsf" /debug:true
+            }
+            'PSD'{
+                    Push-Location $MDTSimulatorPath
+                    . "$MDTSimulatorPath\PSDGather.ps1"
+                    #Get-ChildItem "$MDTSimulatorPath\Modules" -Recurse -Filter *.psm1 | Sort -Descending | ForEach-Object {Import-Module $_.FullName -ErrorAction SilentlyContinue | Out-Null}
+                    Pop-Location
+            }
+        }
+        #grab console script called by TS.xml
+        $TSConsoleScript = Get-content "$MDTSimulatorPath\NewPSConsole.ps1"
+
+        #copy powershell to temp directory for editing
+        Copy-item "$MDTSimulatorPath\TSEnv.ps1" "$env:temp\TSEnv.ps1" -Force | Out-Null
+
+        #grab TSscript called by NePSConsole.ps1
+        $TSStartupScript = Get-Content "$env:temp\TSEnv.ps1"
+
+        #change the path to the deploymentshare in the TSenv.ps1 file (cannot be called as argument)
+        ($TSStartupScript).replace("\\Server\deploymentshare",$DeploymentShare) | Set-Content "$env:temp\TSEnv.ps1" -Force
+
+        # to identify correct running process; append the admin value to end of windows (used in VSCode)
+        If(Test-MyIsAdmin -PassThru){$AppendWindow = ' [Administrator]'}Else{$AppendWindow = $null}
+
+        switch($Environment){
+            'Powershell' {
+                            #$Command = "Start-Process `"C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe`" -ArgumentList `"-noexit -noprofile -file C:\MDTSimulator\TSEnv.ps1`" �Wait" | Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
+                            $ProcessPath = "C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe"
+                            $ProcessArgument="$env:temp\TSEnv.ps1"
+
+                            #replace content with path to TSenv.ps1
+                            ($TSConsoleScript).replace("C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe",$ProcessPath).replace("C:\MDTSimulator\TSEnv.ps1",$ProcessArgument) |
+                                        Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
+
+                            #detection for process window
+                            $Window = "MDT Simulator Terminal"
+                            $sleep = 5
+                         }
+            'ISE'        {
+                            $ProcessPath = "C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell_ISE.exe"
+                            $ProcessArgument="$env:temp\TSEnv.ps1"
+
+                            #replace content with ISE process and path to TSenv.ps1
+                            ($TSConsoleScript).replace("C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe",$ProcessPath).replace("-noexit -noprofile -file C:\MDTSimulator\TSEnv.ps1",$ProcessArgument) |
+                                        Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
+
+                            #detection for process window
+                            $Window = "MDT Simulator Terminal"
+                            $sleep = 30
+                         }
+            'VSCode'     {
+                            If(Test-MyVSCodeInstall){
+                                $ProcessPath = "$env:LOCALAPPDATA\Programs\Microsoft VS Code\code.exe"
+                                $ProcessArgument="$DeploymentShare $env:temp\TSEnv.ps1 $DeploymentShare\Script\PSDStart.ps1 --new-window"
+
+                                #replace content with VScode process and path to TSenv.ps1
+                                ($TSConsoleScript).replace("C:\Windows\system32\WindowsPowerShell\v1.0\PowerShell.exe",$ProcessPath).replace("-noexit -noprofile -file C:\MDTSimulator\TSEnv.ps1",$ProcessArgument) |
+                                            Set-Content "$MDTSimulatorPath\NewPSConsole.ps1"
+
+                                #detection for process window
+                                $Window = "TSEnv.ps1 - DEP-PSD$ - Visual Studio Code" + $AppendWindow
+                                $sleep = 30
+                            }Else{
+                                Write-host "Visual Studio Code was not found; Unable to start MDT simulator with it.`nInstall at https://code.visualstudio.com/ or run command Start-MyVSCodeInstall" -BackgroundColor Red -ForegroundColor White
+                            }
+                         }
+        }
+
+        Write-Host "Copy Collected variables to MININT folder..."
+        Copy-Item 'C:\MININT\SMSOSD\OSDLOGS\VARIABLES.DAT' $MDTSimulatorPath -Force -ErrorAction SilentlyContinue | Out-Null
+
+        Write-Host "Building TSenv: Starting TaskSequence bootstrapper" -ForegroundColor Cyan -NoNewline
+
+        $MDTTerminalProcess = Get-Process | Where-Object {$_.MainWindowTitle -eq $Window}
+        If($MDTTerminalProcess){
+            Set-MyWindowPosition $MDTTerminalProcess -Position Restore -Show
+            Write-Host ('...Simulator terminal already started in {0}' -f $Environment) -ForegroundColor Green
+        }
+        Else{
+            If( ($Environment -eq 'VSCode') -and -Not(Test-MyVSCodeInstall) ){
+                Return $null
+            }
+
+            $timeout = 1
+            Start-Process "$MDTSimulatorPath\TsmBootstrap.exe" -ArgumentList "/env:SAStart" | Out-Null
+            #Start-Process "$MDTSimulatorPath\TsmBootstrap.exe" -ArgumentList "/env:SAContinue" | Out-Null
+            $started = $false
+            #check process until it opens
+            Do {
+
+                $status = Get-Process | Where-Object {$_.MainWindowTitle -eq $Window}
+
+                If (!($status)) { Write-Host '.' -NoNewline -ForegroundColor Cyan ; Start-Sleep -Seconds 1 }
+
+                Else { Write-Host ('Simulator terminal started in {0}' -f $Environment) -ForegroundColor Green; $started = $true; Start-sleep $sleep}
+                $timeout++
+            }
+            Until ( $started -or ($timeout -eq 60) )
+        }
+
+        #change the path to the deploymentshare back to dfault
+        #$TSStartupScript | Set-Content "$MDTSimulatorPath\TSEnv.ps1" -Force
+        $TSConsoleScript | Set-Content "$MDTSimulatorPath\NewPSConsole.ps1" -Force
+    }
+    Else{
+         Write-Host ("No MDT Simulator found in path [{0}]..." -f $MDTSimulatorPath) -ForegroundColor Red
+    }
+
+}
+
 Function Show-MyCommands
 {
     Write-Host ""
@@ -2255,19 +3152,19 @@ Function Show-MyCommands
     Write-Host "  eg. Set-MyAzureJitPolicy -VMName DC01,CA01,PR01" -ForegroundColor DarkGray
     Write-Host "Set-MyAzureEnvironment" -ForegroundColor Cyan -NoNewline
     Write-Host " ["-ForegroundColor darkgray -NoNewline
-    Write-Host "-MyEnv"-ForegroundColor White -NoNewline
+    Write-Host "-Option"-ForegroundColor White -NoNewline
     Write-Host " <tab to env>"-ForegroundColor gray -NoNewline
     Write-Host "]"-ForegroundColor darkgray
-    Write-Host "  eg. Set-MyAzureEnvironment -MyEnv SiteA" -ForegroundColor DarkGray
+    Write-Host "  eg. Set-MyAzureEnvironment -Option '$global:MyAzEnv '" -ForegroundColor DarkGray
     Write-Host "Start-MyAzureEnvironment" -ForegroundColor Cyan -NoNewline
     Write-Host " ["-ForegroundColor darkgray -NoNewline
     Write-Host "-OrderTag"-ForegroundColor White -NoNewline
-    Write-Host " 'StartupOrder'"-ForegroundColor gray -NoNewline
+    Write-Host " '$global:MyLabTag'"-ForegroundColor gray -NoNewline
     Write-Host "]"-ForegroundColor darkgray
     Write-Host " ["-ForegroundColor darkgray -NoNewline
     Write-Host "-IncludeLocalVM"-ForegroundColor White -NoNewline
     Write-Host "]"-ForegroundColor darkgray
-    Write-Host "  eg. Start-MyAzureEnvironment -OrderTag 'StartupOrder'" -ForegroundColor DarkGray
+    Write-Host "  eg. Start-MyAzureEnvironment -OrderTag '$global:MyLabTag'" -ForegroundColor DarkGray
     Write-Host "Start-MyLabEnvironment" -ForegroundColor Cyan
     Write-Host "  NOTE. This uses global variables in script" -ForegroundColor DarkGray
     Write-Host "==================================================================" -ForegroundColor Green
@@ -2282,31 +3179,38 @@ Function Show-MyCommands
 #exit process of profile script if using vscode
 if (Test-MyVSCode) { exit }
 
-$Hour = (Get-Date).Hour
-$UserName = Get-MyAzureUserName -firstname
-If($VoiceWelcomeMessage){
-    If ($Hour -lt 10) {("Good Morning, {0}" -f $UserName) | Out-MyVoice -PassThru}
-    ElseIf ($Hour -gt 16) {("Good Evening, {0}" -f $UserName) | Out-MyVoice -PassThru}
-    Else {("Good Afternoon, {0}" -f $UserName)| Out-MyVoice -PassThru}
-}
-Else{
-    If ($Hour -lt 10) {Write-Host ("Good Morning, {0}" -f $UserName)}
-    ElseIf ($Hour -gt 16) {Write-Host ("Good Evening, {0}" -f $UserName)}
-    Else {Write-Host ("Good Afternoon, {0}" -f $UserName)}
-}
-Write-Host 'Your running Powershell version: ' -ForegroundColor Gray -NoNewline
-Write-Host  $PsVersionTable.PSVersion -ForegroundColor Cyan
-'-----------------------------------------------'
-If($VoiceWelcomeMessage){"Please wait while I check for installed modules" | Out-MyVoice}
-Install-MyLatestModule -Name $Checkmodules -Frequency Daily
+$scriptPath = Get-MyScriptPath
+[string]$scriptDirectory = Split-Path $scriptPath -Parent
+[string]$scriptName = Split-Path $scriptPath -Leaf
+[string]$scriptBaseName = [System.IO.Path]::GetFileNameWithoutExtension($scriptName)
 
-Show-MyCommands
+If(!$NoRun){
+    $Hour = (Get-Date).Hour
+    $UserName = Get-MyAzureUserName -firstname
+    If($VoiceWelcomeMessage){
+        If ($Hour -lt 10) {("Good Morning, {0}" -f $UserName) | Out-MyVoice -PassThru}
+        ElseIf ($Hour -gt 16) {("Good Evening, {0}" -f $UserName) | Out-MyVoice -PassThru}
+        Else {("Good Afternoon, {0}" -f $UserName)| Out-MyVoice -PassThru}
+    }
+    Else{
+        If ($Hour -lt 10) {Write-Host ("Good Morning, {0}" -f $UserName)}
+        ElseIf ($Hour -gt 16) {Write-Host ("Good Evening, {0}" -f $UserName)}
+        Else {Write-Host ("Good Afternoon, {0}" -f $UserName)}
+    }
+    Write-Host 'PowerShell version: ' -ForegroundColor Gray -NoNewline
+    Write-Host  $PsVersionTable.PSVersion -ForegroundColor Cyan
+    '-----------------------------------------------'
 
-#create a vsc alias like ise
-If(Test-MyVSCodeInstall){
-    Set-Alias vsc -Value code
-}Else{
-    Write-host "Visual Studio Code was not found; install at https://code.visualstudio.com/ or run command Start-MyVSCodeInstall" -BackgroundColor Red -ForegroundColor White
+    If($VoiceWelcomeMessage){"Please wait while I check for installed modules" | Out-MyVoice}
+    Install-MyLatestModule -Name $Checkmodules -UpdateFrequency Daily
+
+    Show-MyCommands
+
+    #create a vsc alias like ise
+    If(Test-MyVSCodeInstall){
+        Set-Alias vsc -Value code
+    }Else{
+        Write-host "Visual Studio Code was not found; install at https://code.visualstudio.com/ or run command Start-MyVSCodeInstall" -BackgroundColor Red -ForegroundColor White
+    }
+    #Open-MyFile -filename "$env:USERPROFILE\Downloads\CA01.rdp" -method run
 }
-
-#Open-MyFile -filename "$env:USERPROFILE\Downloads\CA01.rdp" -method run
