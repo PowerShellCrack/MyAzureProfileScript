@@ -1,7 +1,11 @@
 # CHANGELOG for Microsoft.Powershell_Profile.ps1
 
-## Dev 20, 2021
+## Jan 10, 2022
 
+- Fixed jit policy; changed back to 5 hours or more
+- Added VM Manager function; loops vms with limited resources
+- Added all switch to module updater; can be ran to clean multiple copies of a module
+## Dec 20, 2021
 
 - Fixed multiple Azure login; kept trying to use previous login
 - Fixed NSG retrieval; conflicted with Bastion Host NSG's
